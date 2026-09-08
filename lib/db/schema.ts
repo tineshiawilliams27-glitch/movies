@@ -37,6 +37,16 @@ export const account = pgTable('account', {
   updatedAt: timestamp('updatedAt').notNull(),
 })
 
+export const project = pgTable('project', {
+  id: text('id').primaryKey(),
+  userId: text('userId').notNull(),
+  title: text('title').notNull(),
+  genre: text('genre').notNull(),
+  status: text('status').notNull().default('Draft'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+})
+
 export const verification = pgTable('verification', {
   id: text('id').primaryKey(),
   identifier: text('identifier').notNull(),
