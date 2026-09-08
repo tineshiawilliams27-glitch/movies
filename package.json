@@ -1,0 +1,34 @@
+{
+  "name": "v0-project",
+  "version": "1.0.0",
+  "description": "Welcome to the AI Movies repository! This project explores the intersection of artificial intelligence and cinema.",
+  "main": "app/page.tsx",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tineshiawilliams27-glitch/movies.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/tineshiawilliams27-glitch/movies/issues"
+  },
+  "homepage": "https://github.com/tineshiawilliams27-glitch/movies#readme",
+  "dependencies": {
+    "next": "^16.3.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.0",
+    "@types/react": "19.2.18",
+    "typescript": "7.0.2"
+  }
+}
