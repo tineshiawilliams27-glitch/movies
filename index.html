@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#11100e" />
+    <title>Framewise — Your movie shelf</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Framewise home"><span class="brand-mark">F</span><span>framewise</span></a>
+      <nav class="main-nav" aria-label="Primary navigation">
+        <a class="active" href="#discover">Discover</a>
+        <a href="#watchlist">My watchlist <span id="nav-count">0</span></a>
+      </nav>
+      <button class="profile-button" type="button" aria-label="Open profile">JW</button>
+    </header>
+
+    <main id="top">
+      <section class="hero" id="discover">
+        <div class="hero-copy">
+          <p class="eyebrow">Your next great watch</p>
+          <h1>Stories worth<br /><em>staying for.</em></h1>
+          <p class="hero-text">Find films that linger long after the credits. Save your favorites, rate what you watch, and build a shelf of your own.</p>
+          <a class="hero-link" href="#catalog">Explore the collection <span aria-hidden="true">↘</span></a>
+        </div>
+        <div class="hero-poster" aria-label="Featured movie poster">
+          <img src="https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=900&q=85" alt="Rows of red theater seats" />
+          <div class="poster-caption"><span>01 / FEATURED</span><strong>Enter the world<br />of cinema.</strong></div>
+        </div>
+      </section>
+
+      <section class="toolbar" aria-label="Movie filters">
+        <div class="section-heading"><p class="eyebrow">Curated for you</p><h2 id="catalog">The collection</h2></div>
+        <div class="controls">
+          <label class="search-box"><span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="Search titles..." aria-label="Search movies" /></label>
+          <div class="filter-tabs" role="tablist" aria-label="Movie genres">
+            <button class="filter-tab active" data-filter="All" role="tab" aria-selected="true">All</button>
+            <button class="filter-tab" data-filter="Drama" role="tab" aria-selected="false">Drama</button>
+            <button class="filter-tab" data-filter="Sci-Fi" role="tab" aria-selected="false">Sci-Fi</button>
+            <button class="filter-tab" data-filter="Thriller" role="tab" aria-selected="false">Thriller</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="movie-grid" id="movie-grid" aria-live="polite"></section>
+      <p class="empty-state" id="empty-state" hidden>No films match that search. Try another title or genre.</p>
+
+      <section class="watchlist-section" id="watchlist">
+        <div><p class="eyebrow">Your personal shelf</p><h2>My watchlist <span id="watchlist-count">0</span></h2></div>
+        <p class="watchlist-hint">Tap the bookmark on any film to save it here.</p>
+      </section>
+      <section class="watchlist-grid" id="watchlist-grid" aria-live="polite"></section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="script.js"></script>
+  </body>
+</html>
