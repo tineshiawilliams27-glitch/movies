@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Framewise — Your movie shelf',
-  description: 'Find films that linger long after the credits.',
+  title: 'CinemaForge — Make something worth watching',
+  description: 'A focused AI film studio for shaping ideas into living films.',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
