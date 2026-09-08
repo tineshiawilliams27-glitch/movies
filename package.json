@@ -22,12 +22,16 @@
   },
   "homepage": "https://github.com/tineshiawilliams27-glitch/movies#readme",
   "dependencies": {
+    "better-auth": "^1.7.3",
+    "drizzle-orm": "^0.45.2",
     "next": "^16.3.4",
+    "pg": "^8.23.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@types/node": "26.5.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "19.2.18",
     "typescript": "7.0.2"
   }
