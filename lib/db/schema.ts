@@ -59,6 +59,19 @@ export const projects = pgTable('projects', {
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({ userUpdatedIdx: index('projects_user_updated_idx').on(table.userId, table.updatedAt) }))
 
+export const characters = pgTable('characters', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  appearance: text('appearance').notNull().default(''),
+  voice: text('voice').notNull().default(''),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ projectCharacterIdx: index('characters_project_idx').on(table.projectId) }))
+
 export const scenes = pgTable('scenes', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
