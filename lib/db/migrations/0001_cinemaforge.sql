@@ -8,3 +8,5 @@ CREATE TABLE IF NOT EXISTS generation_job (id text PRIMARY KEY, "projectId" text
 CREATE TABLE IF NOT EXISTS asset (id text PRIMARY KEY, "projectId" text NOT NULL, "userId" text NOT NULL, "sceneId" text, type text NOT NULL, pathname text NOT NULL, "mimeType" text NOT NULL, size integer, metadata jsonb DEFAULT '{}', "createdAt" timestamp NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS movie_export (id text PRIMARY KEY, "projectId" text NOT NULL, "userId" text NOT NULL, status text NOT NULL DEFAULT 'queued', progress integer NOT NULL DEFAULT 0, "outputAssetId" text, error text, "createdAt" timestamp NOT NULL DEFAULT now(), "updatedAt" timestamp NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS job_event (id text PRIMARY KEY, "jobId" text NOT NULL, "userId" text NOT NULL, status text NOT NULL, progress integer NOT NULL, message text, "createdAt" timestamp NOT NULL DEFAULT now());
+ALTER TABLE "project" ADD COLUMN IF NOT EXISTS "visualStyle" text NOT NULL DEFAULT 'Atmospheric';
+ALTER TABLE "project" ADD COLUMN IF NOT EXISTS "styleVersion" integer NOT NULL DEFAULT 1;
