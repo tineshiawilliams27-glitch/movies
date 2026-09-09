@@ -33,7 +33,7 @@ export function AuthForm({ mode, providers = {} }: AuthFormProps) {
 
   async function social(provider: 'google' | 'github') {
     setError('')
-    const result = await authClient.signIn.social({ provider, callbackURL: '/' })
+    const result = await authClient.signIn.social({ provider, callbackURL: '/studio' })
     if (result.error) setError('This provider is not configured yet. Use email and password or try again later.')
   }
 

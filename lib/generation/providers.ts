@@ -9,4 +9,7 @@ export const mockProvider: Provider = {
   },
 }
 
-export function getProvider(): Provider { return mockProvider }
+export function getProvider(type: GenerationJobType): Provider {
+  if (!labels[type]) throw new Error(`Unsupported generation type: ${type}`)
+  return mockProvider
+}
