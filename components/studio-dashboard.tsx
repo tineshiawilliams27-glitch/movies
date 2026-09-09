@@ -101,7 +101,9 @@ function StatusBadge({ status }: { status: Project['status'] }) {
   return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${styles[status]}`}><span className={`size-1.5 rounded-full ${status === 'Rendering' ? 'bg-accent animate-pulse' : status === 'Ready' ? 'bg-primary' : 'bg-muted-foreground/50'}`} />{status}</span>
 }
 
-export function StudioDashboard({ persistedProjects = [] }: { persistedProjects?: Project[] }) {
+export function StudioDashboard({ persistedProjects = [], userName, userEmail }: { persistedProjects?: Project[]; userName?: string | null; userEmail?: string | null }) {
+  const displayName = userName?.trim() || userEmail?.split('@')[0] || 'Account'
+  const initials = displayName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
   const [projects, setProjects] = useState(() => persistedProjects.length > 0 ? persistedProjects : initialProjects)
   const [query, setQuery] = useState('')
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -176,7 +178,7 @@ export function StudioDashboard({ persistedProjects = [] }: { persistedProjects?
           <header className="flex h-16 items-center justify-between border-b border-border px-5 md:px-8">
             <button className="rounded-lg p-2 text-muted-foreground hover:bg-accent lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={19} /></button>
             <div className="hidden items-center gap-2 text-sm text-muted-foreground md:flex"><span>Studio</span><span>/</span><span className="text-foreground">Overview</span></div>
-            <div className="flex items-center gap-2"><button className="relative rounded-lg p-2 text-muted-foreground hover:bg-accent" aria-label="Notifications"><Bell size={18} /><span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-accent" /></button><div className="ml-2 flex items-center gap-2 border-l border-border pl-3"><span className="flex size-8 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">AR</span><span className="hidden text-sm font-medium sm:block">Alex Rivera</span><ChevronDown size={14} className="text-muted-foreground" /></div></div>
+            <div className="flex items-center gap-2"><button className="relative rounded-lg p-2 text-muted-foreground hover:bg-accent" aria-label="Notifications"><Bell size={18} /><span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-accent" /></button><div className="ml-2 flex items-center gap-2 border-l border-border pl-3"><span className="flex size-8 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">{initials}</span><span className="hidden text-sm font-medium sm:block">{displayName}</span><ChevronDown size={14} className="text-muted-foreground" /></div></div>
           </header>
 
           <div className="mx-auto max-w-[1500px] px-5 py-8 md:px-8 lg:px-10">
