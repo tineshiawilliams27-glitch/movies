@@ -1,0 +1,2 @@
+CREATE TABLE IF NOT EXISTS public.media_assets (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), "userId" text NOT NULL, "projectId" uuid NOT NULL, "sceneId" uuid, kind text NOT NULL, pathname text NOT NULL, "contentType" text NOT NULL, "durationSeconds" numeric, metadata jsonb NOT NULL DEFAULT '{}'::jsonb, "createdAt" timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS media_assets_project_created_idx ON public.media_assets ("projectId", "createdAt");

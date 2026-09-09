@@ -1,44 +1,43 @@
 {
-  "name": "v0-project",
-  "version": "1.0.0",
-  "description": "Welcome to the AI Movies repository! This project explores the intersection of artificial intelligence and cinema.",
-  "main": "app/page.tsx",
+  "name": "my-project",
+  "version": "0.1.0",
+  "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "worker": "tsx worker/index.ts"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/tineshiawilliams27-glitch/movies.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
-  "bugs": {
-    "url": "https://github.com/tineshiawilliams27-glitch/movies/issues"
-  },
-  "homepage": "https://github.com/tineshiawilliams27-glitch/movies#readme",
   "dependencies": {
+    "@base-ui/react": "^1.5.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.4",
+    "@vercel/analytics": "1.6.1",
     "@vercel/blob": "^2.8.0",
     "better-auth": "^1.7.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
-    "next": "^16.3.4",
+    "lucide-react": "^1.16.0",
+    "next": "16.3.3",
     "pg": "^8.23.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react": "^19",
+    "react-dom": "^19",
+    "shadcn": "^4.11.0",
+    "tailwind-merge": "^3.3.1",
+    "tw-animate-css": "^1.4.0",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@types/node": "26.5.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24",
     "@types/pg": "^8.23.1",
-    "@types/react": "19.2.18",
-    "drizzle-kit": "^0.31.10",
-    "typescript": "7.0.2",
-    "vitest": "^4.1.11"
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "postcss": "^8.5",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.13",
+    "typescript": "5.7.3"
   }
 }
