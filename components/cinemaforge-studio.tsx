@@ -14,7 +14,7 @@ type StudioUser = { name?: string | null; email?: string | null; image?: string 
 
 export default function CinemaForgeStudio({ user }: { user?: StudioUser | null }) {
   const displayName = user?.name?.trim() || user?.email?.split('@')[0] || 'Creator'
-  const initials = displayName.split(/\\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'CF'
+  const initials = displayName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'CF'
   const [active, setActive] = useState('studio')
   const [wizardOpen, setWizardOpen] = useState(false)
   const [step, setStep] = useState(1)
@@ -28,7 +28,7 @@ export default function CinemaForgeStudio({ user }: { user?: StudioUser | null }
 
   useEffect(() => {
     fetch('/api/projects').then((response) => response.ok ? response.json() : null).then((data) => {
-      if (data?.projects?.length) setProjects(data.projects.map((item: { title: string; genre: string; status: string }) => ({ title: item.title, meta: `${item.genre} · New`, status: item.status, tone: 'violet' })))
+      if (data?.projects) setProjects(data.projects.map((item: { title: string; genre: string; status: string; visualStyle?: string }) => ({ title: item.title, meta: `${item.genre} · ${item.visualStyle ?? 'Atmospheric'}`, status: item.status, tone: 'violet' })))
     }).catch(() => setMessage('Demo mode: sign in to sync projects.'))
   }, [])
 
@@ -43,7 +43,7 @@ export default function CinemaForgeStudio({ user }: { user?: StudioUser | null }
     setStatus('Planning story')
     closeWizard()
     setActive('projects')
-    const response = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, genre, style }) }).catch(() => null)
+    const response = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, genre, visualStyle: style, style }) }).catch(() => null)
     if (!response?.ok) setMessage('Project created locally. Sign in to persist it across devices.')
   }
 
