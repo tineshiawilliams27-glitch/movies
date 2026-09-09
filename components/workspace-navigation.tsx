@@ -12,6 +12,7 @@ const items = [
   { label: 'Storyboard', suffix: '/storyboard', icon: Film },
   { label: 'Timeline', suffix: '/timeline', icon: Film },
   { label: 'Audio', suffix: '/audio', icon: AudioLines },
+  { label: 'Media', suffix: '/media', icon: Images },
   { label: 'Export', suffix: '/export', icon: Mic2 },
 ]
 
