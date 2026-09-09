@@ -43,7 +43,7 @@ export default function CinemaForgeStudio({ user }: { user?: StudioUser | null }
     setStatus('Planning story')
     closeWizard()
     setActive('projects')
-    const response = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, genre, visualStyle: style, style }) }).catch(() => null)
+    const response = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, genre, visualStyle: style }) }).catch(() => null)
     if (!response?.ok) setMessage('Project created locally. Sign in to persist it across devices.')
   }
 

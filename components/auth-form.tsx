@@ -4,9 +4,9 @@ import { FormEvent, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
 
-type AuthFormProps = { mode: 'sign-in' | 'sign-up' }
+type AuthFormProps = { mode: 'sign-in' | 'sign-up'; providers?: { google?: boolean; github?: boolean } }
 
-export function AuthForm({ mode }: AuthFormProps) {
+export function AuthForm({ mode, providers = {} }: AuthFormProps) {
   const router = useRouter()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -27,7 +27,7 @@ export function AuthForm({ mode }: AuthFormProps) {
       setError('We could not verify those details. Please try again.')
       return
     }
-    router.push('/')
+    router.push('/studio')
     router.refresh()
   }
 
@@ -44,6 +44,6 @@ export function AuthForm({ mode }: AuthFormProps) {
     {error && <p className="auth-error" role="alert">{error}</p>}
     <button className="auth-submit" type="submit" disabled={pending}>{pending ? 'Please wait…' : isSignUp ? 'Create account' : 'Sign in'}</button>
     <div className="auth-divider"><span>or continue with</span></div>
-    <div className="auth-socials"><button type="button" onClick={() => social('google')}>Google</button><button type="button" onClick={() => social('github')}>GitHub</button></div>
+    {(providers.google || providers.github) && <div className="auth-socials">{providers.google && <button type="button" onClick={() => social('google')}>Google</button>}{providers.github && <button type="button" onClick={() => social('github')}>GitHub</button>}</div>}
   </form>
 }
