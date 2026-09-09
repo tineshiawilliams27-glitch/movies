@@ -27,6 +27,6 @@ export async function POST(request: Request) {
   const genre = typeof body?.genre === 'string' ? body.genre.trim().slice(0, 60) : ''
   const visualStyle = typeof body?.visualStyle === 'string' ? body.visualStyle.trim().slice(0, 60) : 'Atmospheric'
   if (!title || !genre) return NextResponse.json({ error: 'Title and genre are required' }, { status: 400 })
-  const created = await db.insert(project).values({ id: crypto.randomUUID(), userId, title, genre, visualStyle, status: 'Planning story' }).returning()
+  const created = await db.insert(project).values({ id: crypto.randomUUID(), workspaceId: userId, userId, title, genre, visualStyle, status: 'PLANNING' }).returning()
   return NextResponse.json({ project: created[0] }, { status: 201 })
 }
