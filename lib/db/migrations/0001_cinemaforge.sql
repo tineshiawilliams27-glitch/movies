@@ -10,3 +10,4 @@ CREATE TABLE IF NOT EXISTS movie_export (id text PRIMARY KEY, "projectId" text N
 CREATE TABLE IF NOT EXISTS job_event (id text PRIMARY KEY, "jobId" text NOT NULL, "userId" text NOT NULL, status text NOT NULL, progress integer NOT NULL, message text, "createdAt" timestamp NOT NULL DEFAULT now());
 ALTER TABLE "project" ADD COLUMN IF NOT EXISTS "visualStyle" text NOT NULL DEFAULT 'Atmospheric';
 ALTER TABLE "project" ADD COLUMN IF NOT EXISTS "styleVersion" integer NOT NULL DEFAULT 1;
+ALTER TABLE "project" ADD COLUMN IF NOT EXISTS logline text;
