@@ -80,8 +80,8 @@ const initialProjects: Project[] = [
 ]
 
 const navItems = [
-  { label: 'Overview', icon: LayoutDashboard, href: '/' },
-  { label: 'Projects', icon: FolderKanban, href: '/projects' },
+  { label: 'Overview', icon: LayoutDashboard, href: '/dashboard' },
+  { label: 'Projects', icon: FolderKanban, href: '/dashboard' },
   { label: 'Templates', icon: Grid2X2, href: '/templates' },
 ]
 
@@ -110,12 +110,15 @@ export function StudioDashboard({ persistedProjects = [] }: { persistedProjects?
   const [saved, setSaved] = useState(false)
   const filteredProjects = useMemo(() => projects.filter((project) => `${project.title} ${project.type}`.toLowerCase().includes(query.toLowerCase())), [projects, query])
 
-  function createProject() {
+  async function createProject() {
     const title = newTitle.trim() || 'Untitled production'
+    const response = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, type: 'New production', duration: 0, scenes: 0 }) })
+    if (!response.ok) return
+    const data = await response.json()
     const project: Project = {
-      id: title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      title,
-      type: 'New production',
+      id: data.project.id,
+      title: data.project.title,
+      type: data.project.type,
       duration: '00:00',
       scenes: 0,
       updated: 'Just now',
@@ -160,7 +163,7 @@ export function StudioDashboard({ persistedProjects = [] }: { persistedProjects?
           </nav>
           <nav className="mt-7 flex flex-col gap-1" aria-label="Workspace navigation">
             <span className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Workspace</span>
-            {workspaceItems.map((item) => <Link key={item.label} href="/projects/new" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"><item.icon size={17} />{item.label}</Link>)}
+            {workspaceItems.map((item) => <Link key={item.label} href="/dashboard" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"><item.icon size={17} />{item.label}</Link>)}
           </nav>
           <div className="mt-auto flex flex-col gap-1">
             <div className="mb-3 rounded-xl border border-border bg-card p-3"><div className="flex items-center gap-2"><Gauge size={15} className="text-accent" /><span className="text-xs font-medium">Free studio</span><span className="ml-auto text-[10px] text-primary">Unlimited</span></div><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">No credits. No duration caps. Your worker capacity sets the pace.</p></div>
