@@ -1,23 +1,106 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { jsonb, numeric, pgTable, text, timestamp, uuid, integer, index, boolean } from 'drizzle-orm/pg-core'
 
 export const user = pgTable('user', {
-  id: text('id').primaryKey(), name: text('name').notNull(), email: text('email').notNull().unique(), emailVerified: boolean('emailVerified').notNull().default(false), image: text('image'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: boolean('emailVerified').notNull().default(false),
+  image: text('image'),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 })
-export const session = pgTable('session', { id: text('id').primaryKey(), expiresAt: timestamp('expiresAt').notNull(), token: text('token').notNull().unique(), createdAt: timestamp('createdAt').notNull(), updatedAt: timestamp('updatedAt').notNull(), ipAddress: text('ipAddress'), userAgent: text('userAgent'), userId: text('userId').notNull() })
-export const account = pgTable('account', { id: text('id').primaryKey(), accountId: text('accountId').notNull(), providerId: text('providerId').notNull(), userId: text('userId').notNull(), accessToken: text('accessToken'), refreshToken: text('refreshToken'), idToken: text('idToken'), accessTokenExpiresAt: timestamp('accessTokenExpiresAt'), refreshTokenExpiresAt: timestamp('refreshTokenExpiresAt'), scope: text('scope'), password: text('password'), createdAt: timestamp('createdAt').notNull(), updatedAt: timestamp('updatedAt').notNull() })
-export const verification = pgTable('verification', { id: text('id').primaryKey(), identifier: text('identifier').notNull(), value: text('value').notNull(), expiresAt: timestamp('expiresAt').notNull(), createdAt: timestamp('createdAt'), updatedAt: timestamp('updatedAt') })
 
-export const project = pgTable('project', { id: text('id').primaryKey(), workspaceId: text('workspace_id').notNull(), userId: text('user_id').notNull(), title: text('name').notNull(), genre: text('description').notNull(), visualStyle: text('visual_style').notNull().default('Atmospheric'), styleVersion: integer('style_version').notNull().default(1), logline: text('logline'), status: text('status').notNull().default('DRAFT'), createdAt: timestamp('created_at').notNull().defaultNow(), updatedAt: timestamp('updated_at').notNull().defaultNow() })
-export const scene = pgTable('scene', { id: text('id').primaryKey(), projectId: text('projectId').notNull(), userId: text('userId').notNull(), position: integer('position').notNull(), title: text('title').notNull(), description: text('description').notNull(), shotPrompt: text('shotPrompt'), narration: text('narration'), metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow() })
-export const generationJob = pgTable('generation_job', { id: text('id').primaryKey(), projectId: text('projectId').notNull(), userId: text('userId').notNull(), type: text('type').notNull(), status: text('status').notNull().default('queued'), progress: integer('progress').notNull().default(0), message: text('message'), payload: jsonb('payload').$type<Record<string, unknown>>().default({}), error: text('error'), attempts: integer('attempts').notNull().default(0), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow() })
-export const asset = pgTable('asset', { id: text('id').primaryKey(), projectId: text('projectId').notNull(), userId: text('userId').notNull(), sceneId: text('sceneId'), type: text('type').notNull(), pathname: text('pathname').notNull(), mimeType: text('mimeType').notNull(), size: integer('size'), metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}), createdAt: timestamp('createdAt').notNull().defaultNow() })
-export const movieExport = pgTable('movie_export', { id: text('id').primaryKey(), projectId: text('projectId').notNull(), userId: text('userId').notNull(), status: text('status').notNull().default('queued'), progress: integer('progress').notNull().default(0), outputAssetId: text('outputAssetId'), error: text('error'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow() })
-export const jobEvent = pgTable('job_event', { id: text('id').primaryKey(), jobId: text('jobId').notNull(), userId: text('userId').notNull(), status: text('status').notNull(), progress: integer('progress').notNull(), message: text('message'), createdAt: timestamp('createdAt').notNull().defaultNow() })
+export const session = pgTable('session', {
+  id: text('id').primaryKey(),
+  expiresAt: timestamp('expiresAt', { withTimezone: true }).notNull(),
+  token: text('token').notNull().unique(),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+  ipAddress: text('ipAddress'),
+  userAgent: text('userAgent'),
+  userId: text('userId').notNull(),
+})
 
-export type Project = typeof project.$inferSelect
-export type Scene = typeof scene.$inferSelect
-export type GenerationJob = typeof generationJob.$inferSelect
-export type Asset = typeof asset.$inferSelect
-export type MovieExport = typeof movieExport.$inferSelect
+export const account = pgTable('account', {
+  id: text('id').primaryKey(),
+  accountId: text('accountId').notNull(),
+  providerId: text('providerId').notNull(),
+  userId: text('userId').notNull(),
+  accessToken: text('accessToken'),
+  refreshToken: text('refreshToken'),
+  idToken: text('idToken'),
+  accessTokenExpiresAt: timestamp('accessTokenExpiresAt', { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp('refreshTokenExpiresAt', { withTimezone: true }),
+  scope: text('scope'),
+  password: text('password'),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+})
 
-export const appTables = { project, scene, generationJob, asset, movieExport, jobEvent }
+export const verification = pgTable('verification', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull(),
+  value: text('value').notNull(),
+  expiresAt: timestamp('expiresAt', { withTimezone: true }).notNull(),
+  createdAt: timestamp('createdAt', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).defaultNow(),
+})
+
+export const projects = pgTable('projects', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  concept: text('concept').notNull().default(''),
+  format: text('format').notNull().default('Story'),
+  durationSeconds: numeric('durationSeconds').notNull().default('0'),
+  status: text('status').notNull().default('DRAFT'),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ userUpdatedIdx: index('projects_user_updated_idx').on(table.userId, table.updatedAt) }))
+
+export const scenes = pgTable('scenes', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sceneNumber: integer('sceneNumber').notNull(),
+  title: text('title').notNull(),
+  description: text('description').notNull().default(''),
+  dialogue: text('dialogue').notNull().default(''),
+  location: text('location').notNull().default(''),
+  timeOfDay: text('timeOfDay').notNull().default(''),
+  durationSeconds: numeric('durationSeconds').notNull().default('0'),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ projectSceneIdx: index('scenes_project_number_idx').on(table.projectId, table.sceneNumber) }))
+
+export const mediaAssets = pgTable('media_assets', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sceneId: uuid('sceneId').references(() => scenes.id, { onDelete: 'set null' }),
+  kind: text('kind').notNull(),
+  pathname: text('pathname').notNull(),
+  contentType: text('contentType').notNull(),
+  durationSeconds: numeric('durationSeconds'),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ projectAssetIdx: index('media_assets_project_created_idx').on(table.projectId, table.createdAt) }))
+
+export const generationJobs = pgTable('generation_jobs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sceneId: uuid('sceneId').references(() => scenes.id, { onDelete: 'set null' }),
+  type: text('type').notNull(),
+  status: text('status').notNull().default('QUEUED'),
+  progress: integer('progress').notNull().default(0),
+  stage: text('stage').notNull().default('Queued'),
+  attempts: integer('attempts').notNull().default(0),
+  error: text('error'),
+  payload: jsonb('payload').notNull().default({}),
+  result: jsonb('result'),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ projectStatusIdx: index('generation_jobs_project_status_idx').on(table.projectId, table.status, table.createdAt) }))
