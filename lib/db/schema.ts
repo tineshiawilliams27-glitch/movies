@@ -48,7 +48,7 @@ export const verification = pgTable('verification', {
 
 export const projects = pgTable('projects', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   concept: text('concept').notNull().default(''),
   format: text('format').notNull().default('Story'),
@@ -61,8 +61,8 @@ export const projects = pgTable('projects', {
 
 export const scenes = pgTable('scenes', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
-  projectId: uuid('projectId').notNull(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   sceneNumber: integer('sceneNumber').notNull(),
   title: text('title').notNull(),
   description: text('description').notNull().default(''),
@@ -77,9 +77,9 @@ export const scenes = pgTable('scenes', {
 
 export const mediaAssets = pgTable('media_assets', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
-  projectId: uuid('projectId').notNull(),
-  sceneId: uuid('sceneId'),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sceneId: uuid('sceneId').references(() => scenes.id, { onDelete: 'set null' }),
   kind: text('kind').notNull(),
   pathname: text('pathname').notNull(),
   contentType: text('contentType').notNull(),
@@ -90,9 +90,9 @@ export const mediaAssets = pgTable('media_assets', {
 
 export const generationJobs = pgTable('generation_jobs', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
-  projectId: uuid('projectId').notNull(),
-  sceneId: uuid('sceneId'),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sceneId: uuid('sceneId').references(() => scenes.id, { onDelete: 'set null' }),
   type: text('type').notNull(),
   status: text('status').notNull().default('QUEUED'),
   progress: integer('progress').notNull().default(0),
