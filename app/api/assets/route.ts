@@ -14,6 +14,17 @@ const allowedTypes = new Map([
   ['audio/', 'audio'],
 ] as const)
 
+export async function GET(request: Request) {
+  const user = await getCurrentUser()
+  if (!user) return apiError('Sign in required', 401)
+  const projectId = new URL(request.url).searchParams.get('projectId')?.trim() ?? ''
+  if (!projectId) return apiError('Project is required')
+  const [owned] = await db.select({ id: project.id }).from(project).where(and(eq(project.id, projectId), eq(project.userId, user.id)))
+  if (!owned) return apiError('Project not found', 404)
+  const records = await db.select().from(asset).where(and(eq(asset.projectId, projectId), eq(asset.userId, user.id)))
+  return NextResponse.json({ assets: records })
+}
+
 export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return apiError('Sign in required', 401)

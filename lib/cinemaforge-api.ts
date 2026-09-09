@@ -8,8 +8,10 @@ export type ProjectRecord = {
   updatedAt?: string
 }
 
-export type SceneRecord = { id: string; position: number; title: string; description: string; shotPrompt?: string | null; narration?: string | null }
-export type AssetRecord = { id: string; projectId: string; type: string; pathname: string; mimeType: string; size?: number | null }
+export type SceneRecord = { id: string; projectId?: string; userId?: string; position: number; title: string; description: string; shotPrompt?: string | null; narration?: string | null }
+export type AssetRecord = { id: string; projectId: string; type: string; pathname: string; mimeType: string; size?: number | null; createdAt?: string }
+
+export type ProjectDetail = { project: ProjectRecord; scenes: SceneRecord[]; assets: AssetRecord[] }
 export type JobRecord = { id: string; projectId: string; type: string; status: string; progress: number; message?: string | null; error?: string | null; payload?: Record<string, unknown> | null }
 export type ExportRecord = { id: string; projectId: string; status: string; progress: number; outputAssetId?: string | null; error?: string | null; url?: string | null }
 
@@ -25,6 +27,7 @@ export const cinemaApi = {
   createProject: (input: { title: string; genre: string; visualStyle: string }) => request<{ project: ProjectRecord }>('/api/projects', { method: 'POST', body: JSON.stringify(input) }),
   listScenes: (projectId: string) => request<{ scenes: SceneRecord[] }>(`/api/storyboard?projectId=${encodeURIComponent(projectId)}`),
   createScenes: (projectId: string, count = 4) => request<{ scenes: SceneRecord[] }>('/api/storyboard', { method: 'POST', body: JSON.stringify({ projectId, count }) }),
+  listAssets: (projectId: string) => request<{ assets: AssetRecord[] }>(`/api/assets?projectId=${encodeURIComponent(projectId)}`),
   uploadAsset: (projectId: string, file: File) => { const form = new FormData(); form.set('projectId', projectId); form.set('file', file); return request<{ asset: AssetRecord }>('/api/assets', { method: 'POST', body: form }) },
   startGeneration: (projectId: string, prompt: string, type = 'story') => request<{ job: JobRecord; result?: Record<string, unknown> }>('/api/generation', { method: 'POST', body: JSON.stringify({ projectId, prompt, type }) }),
   getGeneration: (id: string) => request<{ job: JobRecord }>(`/api/generation/${id}`),
