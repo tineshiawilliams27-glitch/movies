@@ -27,7 +27,7 @@ export default async function DashboardPage() {
     image: getProjectImage(project.metadata),
   }))
 
-  return <StudioDashboard persistedProjects={persistedProjects} />
+  return <StudioDashboard persistedProjects={persistedProjects} userName={session.user.name} userEmail={session.user.email} />
 }
 
 function formatDuration(totalSeconds: number) {
