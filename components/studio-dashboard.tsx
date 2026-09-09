@@ -112,13 +112,13 @@ export function StudioDashboard({ persistedProjects = [] }: { persistedProjects?
 
   async function createProject() {
     const title = newTitle.trim() || 'Untitled production'
-    const response = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, type: 'New production', duration: 0, scenes: 0 }) })
+    const response = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, format: 'New production', durationSeconds: 0, concept: '' }) })
     if (!response.ok) return
     const data = await response.json()
     const project: Project = {
       id: data.project.id,
       title: data.project.title,
-      type: data.project.type,
+      type: data.project.format,
       duration: '00:00',
       scenes: 0,
       updated: 'Just now',
