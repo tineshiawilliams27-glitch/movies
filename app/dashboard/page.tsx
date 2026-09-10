@@ -6,14 +6,13 @@ import { db } from '@/lib/db'
 import { projects, scenes } from '@/lib/db/schema'
 import { headers } from 'next/headers'
 
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardPage() {
-  let session: Awaited<ReturnType<typeof auth.api.getSession>>
-  try {
-    session = await auth.api.getSession({ headers: await headers() })
-  } catch (error) {
+  const session = await auth.api.getSession({ headers: await headers() }).catch((error) => {
     console.error('[v0] Dashboard session lookup failed:', error)
-    redirect('/login')
-  }
+    return null
+  })
 
   if (!session?.user) redirect('/login')
 
