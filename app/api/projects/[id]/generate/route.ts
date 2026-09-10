@@ -1,12 +1,29 @@
 import { NextResponse } from 'next/server'
 import { and, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
+import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
+import { filmBibles, filmCharacters, projects, storyboardShots } from '@/lib/db/schema'
 
-const requestSchema = z.object({ kind: z.enum(['story', 'scene', 'character', 'visual', 'audio']), prompt: z.string().trim().min(1).max(12000) })
+const requestSchema = z.object({
+  kind: z.enum(['story', 'scene', 'character', 'visual', 'audio', 'pipeline']),
+  prompt: z.string().trim().min(1).max(12000),
+})
+
+const pipelineSchema = z.object({
+  logline: z.string(),
+  premise: z.string(),
+  themes: z.array(z.string()),
+  midpoint: z.string(),
+  climax: z.string(),
+  acts: z.array(z.object({ title: z.string(), summary: z.string(), beats: z.array(z.string()) })),
+  screenplay: z.string(),
+  styleBible: z.object({ palette: z.string(), lens: z.string(), lighting: z.string(), texture: z.string(), rules: z.array(z.string()) }),
+  characters: z.array(z.object({ stableKey: z.string(), name: z.string(), role: z.string(), description: z.string(), appearance: z.string(), voiceIdentity: z.object({ timbre: z.string(), pace: z.string(), emotionalDirection: z.string() }) })),
+  shots: z.array(z.object({ shotNumber: z.number(), sceneLabel: z.string(), title: z.string(), description: z.string(), shotType: z.string(), cameraMovement: z.string(), lighting: z.string(), mood: z.string(), dialogue: z.string(), effects: z.string(), durationSeconds: z.number(), continuityNotes: z.string(), framePrompt: z.string() })),
+})
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -14,14 +31,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params
   const parsed = requestSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid generation request.' }, { status: 400 })
-  const [project] = await db.select({ id: projects.id, metadata: projects.metadata }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
+  const [project] = await db.select({ id: projects.id, title: projects.title, concept: projects.concept }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
-  if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: 'OpenAI generation is not configured.' }, { status: 503 })
-  const response = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: 'You are a production studio assistant.' }, { role: 'user', content: `Generate a ${parsed.data.kind} for this project. Return concise, production-ready text.\n\n${parsed.data.prompt}` }] }) })
-  const data = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } } | null
-  if (!response.ok) return NextResponse.json({ error: data?.error?.message || 'OpenAI generation failed.' }, { status: 502 })
-  const result = data?.choices?.[0]?.message?.content ?? ''
-  const metadata = { ...(project.metadata as Record<string, unknown>), generations: [...(Array.isArray((project.metadata as Record<string, unknown>).generations) ? (project.metadata as Record<string, unknown>).generations as unknown[] : []), { id: crypto.randomUUID(), kind: parsed.data.kind, prompt: parsed.data.prompt, result, createdAt: new Date().toISOString() }] }
-  await db.update(projects).set({ metadata, updatedAt: new Date() }).where(and(eq(projects.id, id), eq(projects.userId, session.user.id)))
-  return NextResponse.json({ result })
+
+  const result = await generateText({
+    model: 'openai/gpt-5-mini',
+    system: 'You are a showrunner, screenwriter, cinematographer, and post-production supervisor. Create specific, production-ready material. Preserve character identity and visual continuity across every shot.',
+    prompt: `Generate a ${parsed.data.kind} for the film project “${project.title}”. Concept: ${project.concept}\n\nCreative brief: ${parsed.data.prompt}`,
+    output: parsed.data.kind === 'pipeline' ? Output.object({ schema: pipelineSchema }) : Output.object({ schema: z.object({ result: z.string() }) }),
+  })
+
+  if (parsed.data.kind === 'pipeline') {
+    const output = result.output as z.infer<typeof pipelineSchema>
+    await db.insert(filmBibles).values({ userId: session.user.id, projectId: id, logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible }).onConflictDoUpdate({ target: filmBibles.projectId, set: { logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible, updatedAt: new Date() } })
+    for (const character of output.characters) await db.insert(filmCharacters).values({ userId: session.user.id, projectId: id, stableKey: character.stableKey, name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity }).onConflictDoUpdate({ target: [filmCharacters.projectId, filmCharacters.stableKey], set: { name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity, updatedAt: new Date() } })
+    for (const shot of output.shots) await db.insert(storyboardShots).values({ userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt }).onConflictDoUpdate({ target: [storyboardShots.projectId, storyboardShots.shotNumber], set: { sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt, updatedAt: new Date() } })
+    return NextResponse.json({ output })
+  }
+
+  return NextResponse.json({ result: (result.output as { result: string }).result })
 }

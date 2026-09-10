@@ -1,5 +1,6 @@
 import { createServer } from 'node:http'
 import { Redis } from '@upstash/redis'
+import { demoProvider, providerFor } from './providers/index'
 
 const port = Number(process.env.WORKER_PORT || 8787)
 const redis = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN ? Redis.fromEnv() : null
@@ -18,9 +19,10 @@ async function report(jobId: string, payload: Progress) {
 async function processJob(jobId: string) {
   try {
     await report(jobId, { status: 'PROCESSING', progress: 10, stage: 'Worker accepted job' })
-    await report(jobId, { status: 'PROCESSING', progress: 45, stage: demoMode ? 'Running deterministic demo provider' : 'Checking provider configuration' })
-    if (!demoMode) throw new Error('No provider adapter is configured. Set DEMO_MODE=true for deterministic local completions.')
-    await report(jobId, { status: 'COMPLETED', progress: 100, stage: 'Demo generation complete', result: { mode: 'demo', jobId, generatedAt: new Date().toISOString(), outputs: [] } })
+    await report(jobId, { status: 'PROCESSING', progress: 45, stage: demoMode ? 'Running deterministic demo provider' : 'Dispatching generation provider' })
+    const payload = { type: 'GENERATION_JOB', jobId }
+    const result = demoMode ? await demoProvider({ jobId, payload }) : await providerFor('VIDEO_GENERATION')({ jobId, payload })
+    await report(jobId, { status: 'COMPLETED', progress: 100, stage: 'Generation complete', result: { ...result.result, generatedAt: new Date().toISOString() } })
   } catch (error) {
     await report(jobId, { status: 'FAILED', progress: 45, stage: 'Generation failed', error: error instanceof Error ? error.message : 'Generation failed.' }).catch((callbackError) => console.error('[v0] worker callback failed', callbackError))
   }

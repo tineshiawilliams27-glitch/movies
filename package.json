@@ -11,11 +11,13 @@
     "worker": "tsx worker/index.ts"
   },
   "dependencies": {
+    "@ai-sdk/react": "^4.0.100",
     "@base-ui/react": "^1.5.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.4",
     "@vercel/analytics": "1.6.1",
     "@vercel/blob": "^2.8.0",
+    "ai": "^7.0.97",
     "better-auth": "^1.7.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
