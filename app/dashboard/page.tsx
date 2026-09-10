@@ -7,30 +7,46 @@ import { projects, scenes } from '@/lib/db/schema'
 import { headers } from 'next/headers'
 
 export default async function DashboardPage() {
-  const session = await auth.api.getSession({ headers: await headers() })
+  let session: Awaited<ReturnType<typeof auth.api.getSession>>
+  try {
+    session = await auth.api.getSession({ headers: await headers() })
+  } catch (error) {
+    console.error('[v0] Dashboard session lookup failed:', error)
+    redirect('/login')
+  }
+
   if (!session?.user) redirect('/login')
 
+  let persistedProjects: Awaited<ReturnType<typeof loadProjects>> = []
+  try {
+    persistedProjects = await loadProjects(session.user.id)
+  } catch (error) {
+    console.error('[v0] Dashboard project loading failed:', error)
+  }
+
+  return <StudioDashboard persistedProjects={persistedProjects} userName={session.user.name} userEmail={session.user.email} />
+}
+
+async function loadProjects(userId: string) {
   const rows = await db
     .select()
     .from(projects)
-    .where(eq(projects.userId, session.user.id))
+    .where(eq(projects.userId, userId))
     .orderBy(desc(projects.updatedAt))
 
-  const persistedProjects = await Promise.all(rows.map(async (project) => {
+  return Promise.all(rows.map(async (project) => {
     const [sceneStats] = await db.select({ count: sql<number>`count(*)`, duration: sql<string>`coalesce(sum(${scenes.durationSeconds}), 0)` }).from(scenes).where(eq(scenes.projectId, project.id))
     return {
-    id: project.id,
-    title: project.title,
-    type: project.format,
-    duration: formatDuration(Number(sceneStats?.duration ?? 0)),
-    scenes: Number(sceneStats?.count ?? 0),
-    updated: formatUpdatedAt(project.updatedAt),
-    status: project.status === 'READY' ? 'Ready' as const : project.status === 'RENDERING' ? 'Rendering' as const : 'Draft' as const,
-    image: getProjectImage(project.metadata),
+      id: project.id,
+      title: project.title,
+      type: project.format,
+      duration: formatDuration(Number(sceneStats?.duration ?? 0)),
+      scenes: Number(sceneStats?.count ?? 0),
+      updated: formatUpdatedAt(project.updatedAt),
+      status: project.status === 'READY' ? 'Ready' as const : project.status === 'RENDERING' ? 'Rendering' as const : 'Draft' as const,
+      image: getProjectImage(project.metadata),
     }
   }))
-
-  return <StudioDashboard persistedProjects={persistedProjects} userName={session.user.name} userEmail={session.user.email} />
 }
 
 function formatDuration(totalSeconds: number) {
