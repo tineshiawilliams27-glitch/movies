@@ -20,18 +20,20 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     setPending(true)
     try {
       const normalizedEmail = email.trim().toLowerCase()
+      const redirectTarget = new URLSearchParams(window.location.search).get('redirect') || '/dashboard'
+      const safeRedirect = redirectTarget.startsWith('/') && !redirectTarget.startsWith('//') ? redirectTarget : '/dashboard'
       if (!normalizedEmail || !password) {
         setError('Enter your email and password to continue.')
         return
       }
       const result = isSignUp
-        ? await signUp.email({ name: name.trim(), email: normalizedEmail, password, callbackURL: '/dashboard' })
-        : await signIn.email({ email: normalizedEmail, password, callbackURL: '/dashboard' })
+        ? await signUp.email({ name: name.trim(), email: normalizedEmail, password, callbackURL: safeRedirect })
+        : await signIn.email({ email: normalizedEmail, password, callbackURL: safeRedirect })
       if (result.error) {
         setError('That email or password is incorrect. If you are new here, create an account first.')
         return
       }
-      router.replace('/dashboard')
+      router.replace(safeRedirect)
       router.refresh()
     } catch (error) {
       setError('The authentication service is unavailable right now. Please try again.')
