@@ -7,7 +7,14 @@ import { projects, scenes } from '@/lib/db/schema'
 import { headers } from 'next/headers'
 
 export default async function DashboardPage() {
-  const session = await auth.api.getSession({ headers: await headers() })
+  let session: Awaited<ReturnType<typeof auth.api.getSession>>
+  try {
+    session = await auth.api.getSession({ headers: await headers() })
+  } catch (error) {
+    console.error('[v0] Dashboard session lookup failed:', error)
+    redirect('/login')
+  }
+
   if (!session?.user) redirect('/login')
 
   let persistedProjects: Awaited<ReturnType<typeof loadProjects>> = []
