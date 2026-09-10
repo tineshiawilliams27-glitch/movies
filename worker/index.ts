@@ -5,10 +5,25 @@ const port = Number(process.env.WORKER_PORT || 8787)
 const redis = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN ? Redis.fromEnv() : null
 const appUrl = process.env.APP_URL?.replace(/\/$/, '')
 const workerToken = process.env.WORKER_TOKEN
+const demoMode = process.env.DEMO_MODE === 'true'
 
-async function report(jobId: string, payload: Record<string, unknown>) {
-  if (!appUrl) return
-  await fetch(`${appUrl}/api/internal/jobs/${jobId}/progress`, { method: 'POST', headers: { 'content-type': 'application/json', ...(workerToken ? { authorization: `Bearer ${workerToken}` } : {}) }, body: JSON.stringify(payload) })
+type Progress = { status: 'PROCESSING' | 'COMPLETED' | 'FAILED'; progress: number; stage: string; error?: string; result?: Record<string, unknown> }
+
+async function report(jobId: string, payload: Progress) {
+  if (!appUrl) throw new Error('APP_URL is required for worker callbacks.')
+  const response = await fetch(`${appUrl}/api/internal/jobs/${jobId}/progress`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${workerToken ?? ''}` }, body: JSON.stringify(payload) })
+  if (!response.ok) throw new Error(`Progress callback failed with ${response.status}.`)
+}
+
+async function processJob(jobId: string) {
+  try {
+    await report(jobId, { status: 'PROCESSING', progress: 10, stage: 'Worker accepted job' })
+    await report(jobId, { status: 'PROCESSING', progress: 45, stage: demoMode ? 'Running deterministic demo provider' : 'Checking provider configuration' })
+    if (!demoMode) throw new Error('No provider adapter is configured. Set DEMO_MODE=true for deterministic local completions.')
+    await report(jobId, { status: 'COMPLETED', progress: 100, stage: 'Demo generation complete', result: { mode: 'demo', jobId, generatedAt: new Date().toISOString(), outputs: [] } })
+  } catch (error) {
+    await report(jobId, { status: 'FAILED', progress: 45, stage: 'Generation failed', error: error instanceof Error ? error.message : 'Generation failed.' }).catch((callbackError) => console.error('[v0] worker callback failed', callbackError))
+  }
 }
 
 async function processJobs() {
@@ -16,26 +31,15 @@ async function processJobs() {
   while (true) {
     const jobId = await redis.rpop<string>('lumen-forge:generation-jobs')
     if (!jobId) { await new Promise((resolve) => setTimeout(resolve, 2000)); continue }
-    const id = String(jobId)
-    await report(id, { status: 'PROCESSING', progress: 10, stage: 'Worker accepted job' })
-    await report(id, { status: 'PROCESSING', progress: 35, stage: 'Preparing generation inputs' })
-    await report(id, { status: 'FAILED', progress: 35, stage: 'Waiting for configured AI provider', error: 'No GPU provider adapter is configured. Set VIDEO_PROVIDER or enable DEMO_MODE on the worker.' })
+    await processJob(String(jobId))
   }
 }
 
-const server = createServer(async (request, response) => {
-  if (request.method !== 'POST' || request.url !== '/worker/health') {
-    response.writeHead(404).end('Not found')
-    return
-  }
-  if (workerToken && request.headers.authorization !== `Bearer ${workerToken}`) {
-    response.writeHead(401).end('Unauthorized')
-    return
-  }
-  response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: true, worker: 'ready' }))
+const server = createServer((request, response) => {
+  if (request.method !== 'POST' || request.url !== '/worker/health') return response.writeHead(404).end('Not found')
+  if (!workerToken && process.env.NODE_ENV === 'production') return response.writeHead(503).end('Worker authentication is not configured')
+  if (workerToken && request.headers.authorization !== `Bearer ${workerToken}`) return response.writeHead(401).end('Unauthorized')
+  response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: true, worker: 'ready', demoMode }))
 })
 
-server.listen(port, () => {
-  console.log(`GPU worker listening on ${port}`)
-  void processJobs()
-})
+server.listen(port, () => { console.log(`GPU worker listening on ${port}`); void processJobs() })
