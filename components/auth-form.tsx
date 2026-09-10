@@ -20,11 +20,15 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     setPending(true)
     try {
       const normalizedEmail = email.trim().toLowerCase()
+      if (!normalizedEmail || !password) {
+        setError('Enter your email and password to continue.')
+        return
+      }
       const result = isSignUp
         ? await signUp.email({ name: name.trim(), email: normalizedEmail, password, callbackURL: '/dashboard' })
         : await signIn.email({ email: normalizedEmail, password, callbackURL: '/dashboard' })
       if (result.error) {
-        setError('We could not complete that request. Check your details and try again.')
+        setError('That email or password is incorrect. If you are new here, create an account first.')
         return
       }
       router.replace('/dashboard')
@@ -43,9 +47,9 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         <h1 className="mt-8 text-3xl font-semibold tracking-tight">{isSignUp ? 'Create your studio account' : 'Welcome back to the studio'}</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">Unlimited projects, scenes, and editorial control.</p>
         <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
-          {isSignUp && <input aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" required className="rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" />}
-          <input aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" required className="rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" />
-          <input aria-label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" minLength={8} required className="rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" />
+          {isSignUp && <input aria-label="Name" autoComplete="name" value={name} onChange={(e) => { setName(e.target.value); setError('') }} placeholder="Name" required className="rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" />}
+          <input aria-label="Email" type="email" autoComplete="email" value={email} onChange={(e) => { setEmail(e.target.value); setError('') }} placeholder="Email" required className="rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" />
+          <input aria-label="Password" type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} value={password} onChange={(e) => { setPassword(e.target.value); setError('') }} placeholder="Password" minLength={8} required className="rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" />
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <button disabled={pending} className="rounded-xl bg-primary px-4 py-3 font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-60">{pending ? 'Working…' : isSignUp ? 'Create account' : 'Sign in'}</button>
         </form>
