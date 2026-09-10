@@ -37,7 +37,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params
   const parsed = updateSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid project payload.', issues: parsed.error.issues }, { status: 400 })
-  const [project] = await db.update(projects).set({ ...parsed.data, updatedAt: new Date() }).where(and(eq(projects.id, id), eq(projects.userId, userId))).returning()
+  const existing = await db.select({ metadata: projects.metadata }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, userId))).limit(1)
+  if (!existing[0]) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
+  const nextMetadata = parsed.data.metadata ? { ...(existing[0].metadata as Record<string, unknown>), ...parsed.data.metadata } : undefined
+  const [project] = await db.update(projects).set({ ...parsed.data, ...(nextMetadata ? { metadata: nextMetadata } : {}), updatedAt: new Date() }).where(and(eq(projects.id, id), eq(projects.userId, userId))).returning()
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   return NextResponse.json({ project })
 }
