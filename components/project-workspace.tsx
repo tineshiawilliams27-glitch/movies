@@ -17,10 +17,11 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   const activeScene = scenes.find((scene) => scene.id === activeId) ?? scenes[0]
 
   useEffect(() => {
-    if (!activeScene) return
+    const scene = scenes.find((item) => item.id === activeId)
+    if (!scene) return
     let cancelled = false
     const poll = async () => {
-      const response = await fetch(`/api/projects/${projectId}/jobs?sceneId=${activeScene.id}`)
+      const response = await fetch(`/api/projects/${projectId}/jobs?sceneId=${scene.id}`)
       if (!response.ok || cancelled) return
       const data = await response.json()
       const nextJob = data.jobs?.find((job: { status: string }) => job.status === 'QUEUED' || job.status === 'PROCESSING') ?? data.jobs?.[0] ?? null
@@ -29,7 +30,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     poll()
     const timer = window.setInterval(poll, 2500)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [projectId, activeScene?.id])
+  }, [projectId, activeId, scenes])
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/scenes`).then(async (response) => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, FileAudio, FileImage, FileVideo, Loader2, Upload } from 'lucide-react'
 import { WorkspaceNavigation } from '@/components/workspace-navigation'
 
@@ -13,13 +13,13 @@ export function MediaLibrary({ projectId }: { projectId: string }) {
   const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState('')
 
-  async function loadAssets() {
+  const loadAssets = useCallback(async () => {
     const response = await fetch(`/api/projects/${projectId}/media`)
     if (response.ok) setAssets((await response.json()).assets)
     setLoading(false)
-  }
+  }, [projectId])
 
-  useEffect(() => { void loadAssets() }, [projectId])
+  useEffect(() => { void loadAssets() }, [loadAssets])
 
   async function upload(file: File) {
     setUploading(true)
