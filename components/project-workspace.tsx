@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Check, Loader2, Plus, Save, Sparkles, WandSparkles } from 'lucide-react'
 import { WorkspaceNavigation } from '@/components/workspace-navigation'
@@ -15,12 +15,13 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   const [message, setMessage] = useState('')
   const [activeJob, setActiveJob] = useState<{ id: string; status: string; progress: number; stage: string } | null>(null)
   const activeScene = scenes.find((scene) => scene.id === activeId) ?? scenes[0]
+  const activeSceneId = activeScene?.id
 
   useEffect(() => {
-    if (!activeScene) return
+    if (!activeSceneId) return
     let cancelled = false
     const poll = async () => {
-      const response = await fetch(`/api/projects/${projectId}/jobs?sceneId=${activeScene.id}`)
+      const response = await fetch(`/api/projects/${projectId}/jobs?sceneId=${activeSceneId}`)
       if (!response.ok || cancelled) return
       const data = await response.json()
       const nextJob = data.jobs?.find((job: { status: string }) => job.status === 'QUEUED' || job.status === 'PROCESSING') ?? data.jobs?.[0] ?? null
@@ -29,7 +30,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     poll()
     const timer = window.setInterval(poll, 2500)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [projectId, activeScene?.id])
+  }, [projectId, activeSceneId])
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/scenes`).then(async (response) => {
