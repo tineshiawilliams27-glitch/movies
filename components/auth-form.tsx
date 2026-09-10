@@ -19,14 +19,15 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     setError('')
     setPending(true)
     try {
+      const normalizedEmail = email.trim().toLowerCase()
       const result = isSignUp
-        ? await signUp.email({ name, email, password })
-        : await signIn.email({ email, password })
+        ? await signUp.email({ name: name.trim(), email: normalizedEmail, password, callbackURL: '/dashboard' })
+        : await signIn.email({ email: normalizedEmail, password, callbackURL: '/dashboard' })
       if (result.error) {
         setError('We could not complete that request. Check your details and try again.')
         return
       }
-      router.push('/dashboard')
+      router.replace('/dashboard')
       router.refresh()
     } catch (error) {
       setError('The authentication service is unavailable right now. Please try again.')
