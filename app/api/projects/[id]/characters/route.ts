@@ -32,7 +32,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, userId))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
-  const parsed = characterSchema.safeParse(await request.json())
+  const parsed = characterSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid character payload.', issues: parsed.error.issues }, { status: 400 })
   const [character] = await db.insert(characters).values({ ...parsed.data, userId, projectId: id }).returning()
   return NextResponse.json({ character }, { status: 201 })
