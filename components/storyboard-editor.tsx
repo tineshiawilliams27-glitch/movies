@@ -24,10 +24,15 @@ export function StoryboardEditor({ projectId }: { projectId: string }) {
 
   async function saveScene(scene: Scene) {
     setSavingId(scene.id)
-    const response = await fetch(`/api/projects/${projectId}/scenes/${scene.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(scene) })
-    setSavingId(null)
-    setMessage(response.ok ? 'Storyboard saved' : 'Save failed')
-    window.setTimeout(() => setMessage(''), 2200)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/scenes/${scene.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(scene) })
+      setMessage(response.ok ? 'Storyboard saved' : 'Save failed')
+    } catch {
+      setMessage('Save failed')
+    } finally {
+      setSavingId(null)
+      window.setTimeout(() => setMessage(''), 2200)
+    }
   }
 
   async function moveScene(targetId: string) {
