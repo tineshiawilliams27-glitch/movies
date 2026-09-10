@@ -134,12 +134,16 @@ export function StudioDashboard({ persistedProjects = [], userName, userEmail }:
     window.setTimeout(() => setSaved(false), 2200)
   }
 
-  function duplicateProject(project: Project) {
-    setProjects((current) => [{ ...project, id: `${project.id}-copy`, title: `${project.title} copy`, updated: 'Just now', status: 'Draft' }, ...current])
+  async function duplicateProject(project: Project) {
+    const response = await fetch(`/api/projects/${project.id}/duplicate`, { method: 'POST' })
+    if (!response.ok) return
+    const data = await response.json()
+    setProjects((current) => [{ ...project, id: data.project.id, title: data.project.title, updated: 'Just now', status: 'Draft' }, ...current])
   }
 
-  function deleteProject(id: string) {
-    setProjects((current) => current.filter((project) => project.id !== id))
+  async function deleteProject(id: string) {
+    const response = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
+    if (response.ok) setProjects((current) => current.filter((project) => project.id !== id))
   }
 
   return (

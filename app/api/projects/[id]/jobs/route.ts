@@ -28,7 +28,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
-  const parsed = createJobSchema.safeParse(await request.json())
+  const parsed = createJobSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid generation job payload.', issues: parsed.error.issues }, { status: 400 })
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
@@ -37,6 +37,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!scene) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   }
   const [job] = await db.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, payload: parsed.data.payload }).returning()
-  try { await enqueueGenerationJob(job.id) } catch (error) { console.error('[v0] queue enqueue failed', error) }
+  try {
+    await enqueueGenerationJob(job.id)
+  } catch (error) {
+    console.error('[v0] queue enqueue failed', error)
+    const [failedJob] = await db.update(generationJobs).set({ status: 'FAILED', stage: 'Queue unavailable', error: 'The generation queue could not accept this job.', updatedAt: new Date() }).where(eq(generationJobs.id, job.id)).returning()
+    return NextResponse.json({ job: failedJob }, { status: 503 })
+  }
   return NextResponse.json({ job }, { status: 201 })
 }

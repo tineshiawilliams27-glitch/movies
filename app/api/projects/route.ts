@@ -23,7 +23,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const userId = await getUserId()
   if (!userId) return NextResponse.json({ error: 'Authentication is required before creating a project.' }, { status: 401 })
-  const parsed = projectSchema.safeParse(await request.json())
+  const parsed = projectSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid project payload.', issues: parsed.error.issues }, { status: 400 })
   const [project] = await db.insert(projects).values({ ...parsed.data, userId, durationSeconds: String(parsed.data.durationSeconds ?? 0) }).returning()
   return NextResponse.json({ project }, { status: 201 })

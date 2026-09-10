@@ -1,4 +1,4 @@
-import { jsonb, numeric, pgTable, text, timestamp, uuid, integer, index, boolean } from 'drizzle-orm/pg-core'
+import { jsonb, numeric, pgTable, text, timestamp, uuid, integer, index, boolean, uniqueIndex } from 'drizzle-orm/pg-core'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -86,7 +86,7 @@ export const scenes = pgTable('scenes', {
   metadata: jsonb('metadata').notNull().default({}),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectSceneIdx: index('scenes_project_number_idx').on(table.projectId, table.sceneNumber) }))
+}, (table) => ({ projectSceneIdx: index('scenes_project_number_idx').on(table.projectId, table.sceneNumber), projectSceneNumberUnique: uniqueIndex('scenes_project_scene_number_unique').on(table.projectId, table.sceneNumber) }))
 
 export const mediaAssets = pgTable('media_assets', {
   id: uuid('id').defaultRandom().primaryKey(),
