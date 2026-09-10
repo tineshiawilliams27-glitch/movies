@@ -1,9 +1,9 @@
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import { StudioDashboard } from '@/components/studio-dashboard'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
+import { projects, scenes } from '@/lib/db/schema'
 import { headers } from 'next/headers'
 
 export default async function DashboardPage() {
@@ -16,15 +16,18 @@ export default async function DashboardPage() {
     .where(eq(projects.userId, session.user.id))
     .orderBy(desc(projects.updatedAt))
 
-  const persistedProjects = rows.map((project) => ({
+  const persistedProjects = await Promise.all(rows.map(async (project) => {
+    const [sceneStats] = await db.select({ count: sql<number>`count(*)`, duration: sql<string>`coalesce(sum(${scenes.durationSeconds}), 0)` }).from(scenes).where(eq(scenes.projectId, project.id))
+    return {
     id: project.id,
     title: project.title,
     type: project.format,
-    duration: formatDuration(Number(project.durationSeconds)),
-    scenes: getSceneCount(project.metadata),
+    duration: formatDuration(Number(sceneStats?.duration ?? 0)),
+    scenes: Number(sceneStats?.count ?? 0),
     updated: formatUpdatedAt(project.updatedAt),
     status: project.status === 'READY' ? 'Ready' as const : project.status === 'RENDERING' ? 'Rendering' as const : 'Draft' as const,
     image: getProjectImage(project.metadata),
+    }
   }))
 
   return <StudioDashboard persistedProjects={persistedProjects} userName={session.user.name} userEmail={session.user.email} />

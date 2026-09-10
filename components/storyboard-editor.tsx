@@ -30,17 +30,21 @@ export function StoryboardEditor({ projectId }: { projectId: string }) {
     window.setTimeout(() => setMessage(''), 2200)
   }
 
-  function moveScene(targetId: string) {
+  async function moveScene(targetId: string) {
     if (!draggedId || draggedId === targetId) return
-    setScenes((current) => {
-      const sourceIndex = current.findIndex((scene) => scene.id === draggedId)
-      const targetIndex = current.findIndex((scene) => scene.id === targetId)
-      const next = [...current]
-      const [source] = next.splice(sourceIndex, 1)
-      next.splice(targetIndex, 0, source)
-      return next.map((scene, index) => ({ ...scene, sceneNumber: index + 1 }))
-    })
+    const sourceIndex = scenes.findIndex((scene) => scene.id === draggedId)
+    const targetIndex = scenes.findIndex((scene) => scene.id === targetId)
+    const next = [...scenes]
+    const [source] = next.splice(sourceIndex, 1)
+    next.splice(targetIndex, 0, source)
+    const reordered = next.map((scene, index) => ({ ...scene, sceneNumber: index + 1 }))
+    setScenes(reordered)
     setDraggedId(null)
+    const response = await fetch(`/api/projects/${projectId}/scenes/reorder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sceneIds: reordered.map((scene) => scene.id) }) })
+    if (!response.ok) {
+      setMessage('Reorder failed')
+      void fetch(`/api/projects/${projectId}/scenes`).then((result) => result.json()).then((data) => { if (data.scenes) setScenes(data.scenes) })
+    }
   }
 
   async function addScene() {

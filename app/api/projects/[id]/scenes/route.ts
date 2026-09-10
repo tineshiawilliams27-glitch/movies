@@ -36,7 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, userId))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
-  const parsed = sceneSchema.safeParse(await request.json())
+  const parsed = sceneSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid scene payload.', issues: parsed.error.issues }, { status: 400 })
   const existing = await db.select({ sceneNumber: scenes.sceneNumber }).from(scenes).where(and(eq(scenes.projectId, id), eq(scenes.userId, userId))).orderBy(asc(scenes.sceneNumber))
   const sceneNumber = (existing.at(-1)?.sceneNumber ?? 0) + 1

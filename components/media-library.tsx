@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, FileAudio, FileImage, FileVideo, Loader2, Upload } from 'lucide-react'
 import { WorkspaceNavigation } from '@/components/workspace-navigation'
 
-type Asset = { id: string; kind: string; pathname: string; contentType: string; createdAt: string }
+type Asset = { id: string; kind: string; pathname: string; url?: string; contentType: string; createdAt: string }
 
 export function MediaLibrary({ projectId }: { projectId: string }) {
   const inputRef = useRef<HTMLInputElement>(null)
