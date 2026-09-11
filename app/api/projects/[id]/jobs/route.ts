@@ -10,7 +10,7 @@ import { enqueueGenerationJob } from '@/lib/queue'
 const createJobSchema = z.object({
   type: z.enum(['STORY_GENERATION', 'IMAGE_GENERATION', 'VIDEO_GENERATION', 'VOICE_GENERATION', 'VIDEO_RENDER', 'VIDEO_EXPORT']),
   sceneId: z.string().uuid().optional(),
-  payload: z.record(z.string(), z.unknown()).default({}),
+  payload: z.record(z.string().max(120), z.unknown()).refine((value) => Object.keys(value).length <= 100, { message: 'Job payload may contain at most 100 fields.' }).refine((value) => JSON.stringify(value).length <= 100000, { message: 'Job payload is too large.' }).default({}),
 })
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
