@@ -73,7 +73,7 @@ const server = createServer((request, response) => {
 })
 
 server.listen(port, () => {
-  console.log(`GPU worker listening on ${port}`)
+  console.log(`Generation worker listening on ${port}`)
   void requeueProcessingJobs(workerId).catch((error) => console.error('[v0] worker recovery failed', error))
   void processJobs()
 })
