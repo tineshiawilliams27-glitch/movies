@@ -52,14 +52,17 @@ async function executeGeneration(jobId: string, userId: string, type: string, qu
 async function waitForDependencies(userId: string, dependencyIds: string[]) {
   'use step'
   if (dependencyIds.length === 0) return
-  const dependencies = await db.select({ id: generationJobs.id, status: generationJobs.status }).from(generationJobs).where(and(eq(generationJobs.userId, userId), inArray(generationJobs.id, dependencyIds)))
-  const dependencyMap = new Map(dependencies.map((dependency) => [dependency.id, dependency.status]))
-  const missing = dependencyIds.filter((dependencyId) => !dependencyMap.has(dependencyId))
-  if (missing.length > 0) throw new Error(`Generation dependencies are missing: ${missing.join(', ')}`)
-  const failed = dependencyIds.find((dependencyId) => ['FAILED', 'DEAD_LETTER', 'CANCELLED'].includes(dependencyMap.get(dependencyId) || ''))
-  if (failed) throw new Error(`Generation dependency ${failed} failed before this job could run.`)
-  const incomplete = dependencyIds.filter((dependencyId) => dependencyMap.get(dependencyId) !== 'COMPLETED')
-  if (incomplete.length > 0) throw new Error(`Generation dependencies are not complete: ${incomplete.join(', ')}`)
+  for (let poll = 0; poll < 90; poll += 1) {
+    const dependencies = await db.select({ id: generationJobs.id, status: generationJobs.status }).from(generationJobs).where(and(eq(generationJobs.userId, userId), inArray(generationJobs.id, dependencyIds)))
+    const dependencyMap = new Map(dependencies.map((dependency) => [dependency.id, dependency.status]))
+    const missing = dependencyIds.filter((dependencyId) => !dependencyMap.has(dependencyId))
+    if (missing.length > 0) throw new Error(`Generation dependencies are missing: ${missing.join(', ')}`)
+    const failed = dependencyIds.find((dependencyId) => ['FAILED', 'DEAD_LETTER', 'CANCELLED'].includes(dependencyMap.get(dependencyId) || ''))
+    if (failed) throw new Error(`Generation dependency ${failed} failed before this job could run.`)
+    if (dependencyIds.every((dependencyId) => dependencyMap.get(dependencyId) === 'COMPLETED')) return
+    await sleep('2s')
+  }
+  throw new Error(`Generation dependencies did not complete before the dependency wait timeout: ${dependencyIds.join(', ')}`)
 }
 
 async function processStage(jobId: string, userId: string, type: string, payload: JobPayload) {

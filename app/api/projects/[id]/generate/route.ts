@@ -118,7 +118,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       console.error('[v0] pipeline transaction rolled back', error)
       throw error
     })
-    const stageOrder: Record<string, number> = { IMAGE_GENERATION: 0, AUDIO_GENERATION: 1, VIDEO_GENERATION: 2, TIMELINE_BUILD: 3, VIDEO_EXPORT: 4 }
+    const stageOrder: Record<string, number> = { IMAGE_GENERATION: 0, VOICE_GENERATION: 1, VIDEO_GENERATION: 2, TIMELINE_BUILD: 3, VIDEO_EXPORT: 4 }
     const orderedJobs = jobs.map((job) => ({ jobId: job.id, type: job.type, payload: job.payload })).sort((left, right) => {
       const leftShot = Number(left.payload.shotNumber ?? -1)
       const rightShot = Number(right.payload.shotNumber ?? -1)
