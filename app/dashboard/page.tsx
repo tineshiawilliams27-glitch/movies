@@ -1,5 +1,4 @@
 import { desc, eq, sql } from 'drizzle-orm'
-import { redirect } from 'next/navigation'
 import { StudioDashboard } from '@/components/studio-dashboard'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
@@ -14,16 +13,14 @@ export default async function DashboardPage() {
     return null
   })
 
-  if (!session?.user) redirect('/login')
-
   let persistedProjects: Awaited<ReturnType<typeof loadProjects>> = []
   try {
-    persistedProjects = await loadProjects(session.user.id)
+    if (session?.user) persistedProjects = await loadProjects(session.user.id)
   } catch (error) {
     console.error('[v0] Dashboard project loading failed:', error)
   }
 
-  return <StudioDashboard persistedProjects={persistedProjects} userName={session.user.name} userEmail={session.user.email} />
+  return <StudioDashboard persistedProjects={persistedProjects} userName={session?.user?.name ?? 'Story creator'} userEmail={session?.user?.email ?? ''} />
 }
 
 async function loadProjects(userId: string) {
