@@ -17,6 +17,7 @@
   "dependencies": {
     "@ai-sdk/react": "^4.0.100",
     "@base-ui/react": "^1.5.0",
+    "@fal-ai/client": "^1.10.1",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.4",
     "@vercel/analytics": "1.6.1",
