@@ -31,17 +31,42 @@ async function processNextJob() {
   }
 }
 
-const server = createServer((request, response) => {
+const server = createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/health') {
+    try {
+      const status = process.env.WORKER_API_SECRET ? 'ready' : 'misconfigured'
+      response.writeHead(status === 'ready' ? 200 : 503, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ status, queue: getQueueKey(), pollMs }))
+    } catch (error) {
+      response.writeHead(503, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ status: 'unhealthy', error: error instanceof Error ? error.message : 'Worker health check failed.' }))
+    }
+    return
+  }
+  if (request.method === 'GET' && request.url === '/ready') {
+    const provided = request.headers['x-worker-secret']
+    if (!process.env.WORKER_API_SECRET || provided !== process.env.WORKER_API_SECRET) {
+      response.writeHead(401)
+      response.end()
+      return
+    }
     response.writeHead(200, { 'content-type': 'application/json' })
-    response.end(JSON.stringify({ status: 'healthy', queue: getQueueKey() }))
+    response.end(JSON.stringify({ status: 'ready', queue: getQueueKey() }))
     return
   }
   response.writeHead(404)
   response.end()
 })
 
-server.listen(port, () => {
-  console.log(`[worker] listening on ${port}`)
-  setInterval(() => void processNextJob(), pollMs)
-})
+const interval = setInterval(() => void processNextJob(), pollMs)
+server.listen(port, () => console.log(`[worker] listening on ${port}`))
+
+async function shutdown(signal: string) {
+  clearInterval(interval)
+  server.close(() => {
+    console.log(`[worker] ${signal}; shutdown complete`)
+    process.exit(0)
+  })
+}
+process.once('SIGTERM', () => void shutdown('SIGTERM'))
+process.once('SIGINT', () => void shutdown('SIGINT'))
