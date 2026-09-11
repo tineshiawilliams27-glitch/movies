@@ -21,7 +21,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const sceneIdValue = new URL(request.url).searchParams.get('sceneId')
-  const sceneId = sceneIdValue && z.string().uuid().safeParse(sceneIdValue).success ? sceneIdValue : undefined
+  if (sceneIdValue && !z.string().uuid().safeParse(sceneIdValue).success) return NextResponse.json({ error: 'Invalid scene ID.' }, { status: 400 })
+  const sceneId = sceneIdValue || undefined
   const jobs = await db.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id), sceneId ? eq(generationJobs.sceneId, sceneId) : undefined)).orderBy(desc(generationJobs.createdAt)).limit(50)
   return NextResponse.json({ jobs: Array.isArray(jobs) ? jobs : [] })
 }
@@ -30,6 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const parsed = createJobSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid generation job payload.', issues: parsed.error.issues }, { status: 400 })
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
