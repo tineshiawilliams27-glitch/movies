@@ -71,6 +71,14 @@ const sceneBreakdownProvider: GenerationProvider = async ({ payload }) => {
   return { result: { provider: 'scene-breakdown-worker', scenesCreated: generatedScenes.length, replacedExistingScenes: true } }
 }
 
+async function persistGeneratedMedia(payload: Record<string, unknown>, pathname: string, contentType: string, kind: string, metadata: Record<string, unknown> = {}) {
+  const userId = typeof payload.userId === 'string' ? payload.userId : ''
+  const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
+  if (!userId || !projectId) throw new Error(`${kind} generation requires project and user context.`)
+  const [asset] = await db.insert(mediaAssets).values({ userId, projectId, kind, pathname, contentType, durationSeconds: typeof payload.durationSeconds === 'number' ? String(payload.durationSeconds) : undefined, metadata }).returning({ id: mediaAssets.id })
+  return asset.id
+}
+
 async function replicateVideoProvider({ jobId, payload }: ProviderContext): Promise<ProviderResult> {
   if (!replicateModel) return { status: 'NOT_CONFIGURED', result: { code: 'VIDEO_PROVIDER_NOT_CONFIGURED', message: 'Set REPLICATE_VIDEO_MODEL to enable video generation.' } }
   const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
@@ -98,7 +106,8 @@ async function replicateVideoProvider({ jobId, payload }: ProviderContext): Prom
   const clip = await fetch(outputUrl)
   if (!clip.ok) throw new Error('Replicate returned an unreadable clip.')
   const blob = await put(`film-clips/${jobId}.mp4`, await clip.blob(), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
-  return { result: { provider: 'replicate', predictionId: prediction.id, assetPathname: blob.pathname, status: prediction.status } }
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, 'video/mp4', 'VIDEO_CLIP', { provider: 'replicate', predictionId: prediction.id })
+  return { result: { provider: 'replicate', predictionId: prediction.id, assetPathname: blob.pathname, assetId, status: prediction.status } }
 }
 
 export function unavailableProvider(name: string): GenerationProvider {
@@ -109,12 +118,16 @@ async function httpMediaProvider({ jobId, payload }: ProviderContext, endpoint: 
   const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, ...payload }) })
   if (!response.ok) throw new Error(`${kind} provider failed with ${response.status}.`)
   const data = await response.json() as { url?: string; assetPathname?: string; mimeType?: string; durationSeconds?: number }
-  if (typeof data.assetPathname === 'string') return { result: { provider: endpoint, assetPathname: data.assetPathname, kind } }
+  if (typeof data.assetPathname === 'string') {
+    const assetId = await persistGeneratedMedia(payload, data.assetPathname, data.mimeType || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), kind === 'IMAGE' ? 'IMAGE_GENERATED' : 'AUDIO_GENERATED', { provider: endpoint })
+    return { result: { provider: endpoint, assetPathname: data.assetPathname, assetId, kind } }
+  }
   if (!data.url) throw new Error(`${kind} provider must return url or assetPathname.`)
   const media = await fetch(data.url)
   if (!media.ok) throw new Error(`${kind} provider returned an unreadable asset.`)
   const blob = await put(`film-${kind.toLowerCase()}/${jobId}`, await media.blob(), { access: 'private', contentType: data.mimeType || media.headers.get('content-type') || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), addRandomSuffix: false })
-  return { result: { provider: endpoint, assetPathname: blob.pathname, kind, durationSeconds: data.durationSeconds } }
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, data.mimeType || media.headers.get('content-type') || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), kind === 'IMAGE' ? 'IMAGE_GENERATED' : 'AUDIO_GENERATED', { provider: endpoint })
+  return { result: { provider: endpoint, assetPathname: blob.pathname, assetId, kind, durationSeconds: data.durationSeconds } }
 }
 
 const imageGenerationProvider: GenerationProvider = async (context) => imageEndpoint ? httpMediaProvider(context, imageEndpoint, 'IMAGE') : unavailableProvider('IMAGE_GENERATION (IMAGE_PROVIDER_URL)')(context)
@@ -132,9 +145,11 @@ const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
   try {
     const inputs: string[] = []
     for (const [index, item] of videoItems.entries()) {
-      const asset = await get(item.content, { access: 'private' })
+      const [linkedAsset] = item.assetId ? await db.select({ pathname: mediaAssets.pathname }).from(mediaAssets).where(and(eq(mediaAssets.id, item.assetId), eq(mediaAssets.projectId, projectId), eq(mediaAssets.userId, userId))).limit(1) : []
+      const pathname = linkedAsset?.pathname ?? item.content
+      const asset = await get(pathname, { access: 'private' })
       if (!asset) throw new Error(`Timeline asset ${item.label || index + 1} was not found.`)
-      const extension = item.content.endsWith('.mp4') ? 'mp4' : 'bin'
+      const extension = pathname.endsWith('.mp4') ? 'mp4' : 'bin'
       const inputPath = join(workdir, `input-${index}.${extension}`)
       const buffer = Buffer.from(await new Response(asset.stream).arrayBuffer())
       await writeFile(inputPath, buffer)

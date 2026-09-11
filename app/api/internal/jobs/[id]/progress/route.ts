@@ -30,14 +30,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const result = (parsed.data.result ?? {}) as Record<string, unknown>
   const shotNumber = Number(payload.shotNumber)
   if (['VIDEO_GENERATION', 'IMAGE_GENERATION', 'AUDIO_GENERATION', 'VOICE_GENERATION'].includes(job.type) && Number.isInteger(shotNumber) && shotNumber > 0) {
-    await db.update(storyboardShots).set({ status: parsed.data.status, clipAssetId: typeof result.assetId === 'string' ? result.assetId : undefined, updatedAt: new Date() }).where(and(eq(storyboardShots.projectId, job.projectId), eq(storyboardShots.userId, job.userId), eq(storyboardShots.shotNumber, shotNumber)))
+    const assetId = typeof result.assetId === 'string' ? result.assetId : undefined
+    const shotAssetUpdate = job.type === 'IMAGE_GENERATION' ? { frameAssetId: assetId } : job.type === 'VIDEO_GENERATION' ? { clipAssetId: assetId } : {}
+    await db.update(storyboardShots).set({ status: parsed.data.status, ...shotAssetUpdate, updatedAt: new Date() }).where(and(eq(storyboardShots.projectId, job.projectId), eq(storyboardShots.userId, job.userId), eq(storyboardShots.shotNumber, shotNumber)))
     if (parsed.data.status === 'COMPLETED' && typeof result.assetPathname === 'string' && result.assetPathname.trim().length > 0 && result.assetPathname.length <= 2000) {
       const [existingTimelineItem] = await db.select({ id: timelineItems.id }).from(timelineItems).where(and(eq(timelineItems.projectId, job.projectId), eq(timelineItems.userId, job.userId), eq(timelineItems.trackType, 'VIDEO'), eq(timelineItems.label, `Shot ${shotNumber}`), eq(timelineItems.content, result.assetPathname))).limit(1)
       if (!existingTimelineItem) {
         const existingVideoItems = await db.select({ startSeconds: timelineItems.startSeconds, durationSeconds: timelineItems.durationSeconds }).from(timelineItems).where(and(eq(timelineItems.projectId, job.projectId), eq(timelineItems.userId, job.userId), eq(timelineItems.trackType, 'VIDEO')))
         const timelineStart = existingVideoItems.reduce((end, item) => Math.max(end, Number(item.startSeconds || 0) + Number(item.durationSeconds || 0)), 0)
         const durationSeconds = Number(payload.durationSeconds ?? 4)
-        await db.insert(timelineItems).values({ userId: job.userId, projectId: job.projectId, trackType: 'VIDEO', label: `Shot ${shotNumber}`, startSeconds: String(timelineStart), durationSeconds: String(durationSeconds), content: result.assetPathname, metadata: { jobId: job.id, provider: result.provider ?? 'replicate' } })
+        await db.insert(timelineItems).values({ userId: job.userId, projectId: job.projectId, trackType: 'VIDEO', label: `Shot ${shotNumber}`, startSeconds: String(timelineStart), durationSeconds: String(durationSeconds), assetId: typeof result.assetId === 'string' ? result.assetId : undefined, content: result.assetPathname, metadata: { jobId: job.id, provider: result.provider ?? 'replicate' } })
       }
     }
   }

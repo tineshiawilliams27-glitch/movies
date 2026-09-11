@@ -71,17 +71,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       }
       for (const shot of output.shots) {
         const idempotencyKey = `video:${createdRun.version}:${shot.shotNumber}:${shot.framePrompt}`
-        const payload = { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood }
+        const payload = { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood }
         const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: 'VIDEO_GENERATION', payload, idempotencyKey }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
         if (createdJob) {
           await tx.insert(generationOutbox).values({ jobId: createdJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdJob.id, type: 'VIDEO_GENERATION', payload } })
           jobs.push({ id: createdJob.id, type: 'VIDEO_GENERATION', payload })
         }
         const stageJobs = [
-          { type: 'IMAGE_GENERATION', payload: { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, stage: 'visual' } },
-          { type: 'AUDIO_GENERATION', payload: { shotNumber: shot.shotNumber, prompt: shot.dialogue || `Ambient sound design for ${shot.title}`, durationSeconds: shot.durationSeconds, stage: 'voice' } },
-          { type: 'TIMELINE', payload: { shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline' } },
-          { type: 'VIDEO_EXPORT', payload: { shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'export' } },
+          { type: 'IMAGE_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, stage: 'visual' } },
+          { type: 'AUDIO_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: shot.dialogue || `Ambient sound design for ${shot.title}`, durationSeconds: shot.durationSeconds, stage: 'voice' } },
+          { type: 'TIMELINE', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline' } },
+          { type: 'VIDEO_EXPORT', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'export' } },
         ]
         for (const stageJob of stageJobs) {
           const [createdStageJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: stageJob.type, payload: stageJob.payload, idempotencyKey: `${stageJob.type.toLowerCase()}:${createdRun.version}:${shot.shotNumber}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
@@ -90,7 +90,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             jobs.push({ id: createdStageJob.id, type: stageJob.type, payload: stageJob.payload })
           }
         }
-        await tx.insert(timelineItems).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, trackType: 'VIDEO', label: `Shot ${shot.shotNumber}`, startSeconds: '0', durationSeconds: String(shot.durationSeconds), content: shot.framePrompt, metadata: { generationRunId: createdRun.id, shotNumber: shot.shotNumber, version: createdRun.version } })
       }
       return { run: createdRun, jobs }
     }).catch((error) => {
