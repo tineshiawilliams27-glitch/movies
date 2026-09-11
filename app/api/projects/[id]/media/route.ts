@@ -14,8 +14,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
+  const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
+  if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const assets = await db.select().from(mediaAssets).where(and(eq(mediaAssets.projectId, id), eq(mediaAssets.userId, session.user.id)))
-  return NextResponse.json({ assets })
+  return NextResponse.json({ assets: Array.isArray(assets) ? assets : [] })
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
