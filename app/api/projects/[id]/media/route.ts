@@ -34,7 +34,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (file.size <= 0 || file.size > MAX_UPLOAD_BYTES) return NextResponse.json({ error: 'File must be between 1 byte and 250 MB.' }, { status: 413 })
   if (!allowedTypes.has(file.type)) return NextResponse.json({ error: 'Unsupported media type.' }, { status: 415 })
   const inferredKind = file.type.startsWith('image/') ? 'IMAGE' : file.type.startsWith('video/') ? 'VIDEO' : file.type.startsWith('audio/') ? 'AUDIO' : 'SUBTITLE'
-  const kind = z.enum(['IMAGE', 'VIDEO', 'AUDIO', 'SUBTITLE']).catch(inferredKind).parse(formData.get('kind'))
+  const kindValue = formData.get('kind')
+  const kindResult = kindValue === null ? { success: true as const, data: inferredKind } : z.enum(['IMAGE', 'VIDEO', 'AUDIO', 'SUBTITLE']).safeParse(kindValue)
+  if (!kindResult.success) return NextResponse.json({ error: 'Unsupported media kind.' }, { status: 400 })
+  const kind = kindResult.data
   const sceneIdValue = formData.get('sceneId')
   const sceneId = typeof sceneIdValue === 'string' && z.string().uuid().safeParse(sceneIdValue).success ? sceneIdValue : undefined
   if (sceneId) {

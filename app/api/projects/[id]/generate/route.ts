@@ -16,14 +16,14 @@ const requestSchema = z.object({
 const pipelineSchema = z.object({
   logline: z.string(),
   premise: z.string(),
-  themes: z.array(z.string()),
-  midpoint: z.string(),
+  themes: z.array(z.string().max(500)).max(20),
+  midpoint: z.string().max(4000),
   climax: z.string(),
-  acts: z.array(z.object({ title: z.string(), summary: z.string(), beats: z.array(z.string()) })),
-  screenplay: z.string(),
+  acts: z.array(z.object({ title: z.string().max(200), summary: z.string().max(4000), beats: z.array(z.string().max(1000)).max(20) })).max(12),
+  screenplay: z.string().max(100000),
   styleBible: z.object({ palette: z.string(), lens: z.string(), lighting: z.string(), texture: z.string(), rules: z.array(z.string()) }),
-  characters: z.array(z.object({ stableKey: z.string(), name: z.string(), role: z.string(), description: z.string(), appearance: z.string(), voiceIdentity: z.object({ timbre: z.string(), pace: z.string(), emotionalDirection: z.string() }) })),
-  shots: z.array(z.object({ shotNumber: z.number(), sceneLabel: z.string(), title: z.string(), description: z.string(), shotType: z.string(), cameraMovement: z.string(), lighting: z.string(), mood: z.string(), dialogue: z.string(), effects: z.string(), durationSeconds: z.number(), continuityNotes: z.string(), framePrompt: z.string() })),
+  characters: z.array(z.object({ stableKey: z.string().trim().min(1).max(120), name: z.string().max(120), role: z.string().max(200), description: z.string().max(4000), appearance: z.string().max(4000), voiceIdentity: z.object({ timbre: z.string().max(500), pace: z.string().max(500), emotionalDirection: z.string().max(1000) }) })).max(100),
+  shots: z.array(z.object({ shotNumber: z.number().int().positive().max(10000), sceneLabel: z.string().max(200), title: z.string().max(200), description: z.string().max(4000), shotType: z.string().max(120), cameraMovement: z.string().max(500), lighting: z.string().max(500), mood: z.string().max(500), dialogue: z.string().max(4000), effects: z.string().max(2000), durationSeconds: z.number().positive().max(3600), continuityNotes: z.string().max(2000), framePrompt: z.string().max(4000) })).max(1000),
 })
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
