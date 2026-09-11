@@ -16,11 +16,15 @@ export function ExportSuite({ projectId }: { projectId: string }) {
   useEffect(() => {
     let active = true
     const loadLatestJob = async () => {
-      const response = await fetch(`/api/projects/${projectId}/jobs`)
-      if (!response.ok) return
-      const data = await response.json()
-      const job = data.jobs?.find((item: { type: string }) => item.type === 'VIDEO_EXPORT')
-      if (active && job) setLatestJob(job)
+      try {
+        const response = await fetch(`/api/projects/${projectId}/jobs`, { cache: 'no-store' })
+        if (!response.ok) return
+        const data = await response.json()
+        const job = data.jobs?.find((item: { type: string }) => item.type === 'VIDEO_EXPORT')
+        if (active && job) setLatestJob(job)
+      } catch {
+        // Polling is best effort; the next interval can recover from a transient network failure.
+      }
     }
     void loadLatestJob()
     const interval = window.setInterval(() => void loadLatestJob(), 3000)
