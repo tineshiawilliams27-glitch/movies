@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
@@ -41,7 +41,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const [scene] = await db.select({ id: scenes.id }).from(scenes).where(and(eq(scenes.id, parsed.data.sceneId), eq(scenes.projectId, id), eq(scenes.userId, session.user.id))).limit(1)
     if (!scene) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   }
-  const [job] = await db.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, idempotencyKey: parsed.data.idempotencyKey, payload: parsed.data.payload }).onConflictDoUpdate({ target: [generationJobs.projectId, generationJobs.idempotencyKey], set: { updatedAt: new Date() } }).returning()
+  const [job] = await db.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, idempotencyKey: parsed.data.idempotencyKey, payload: parsed.data.payload }).onConflictDoUpdate({ target: [generationJobs.projectId, generationJobs.idempotencyKey], targetWhere: sql`"idempotencyKey" IS NOT NULL`, set: { updatedAt: new Date() } }).returning()
   if (!job?.id) return NextResponse.json({ error: 'Generation job could not be created.' }, { status: 500 })
   if (job.status !== 'QUEUED' || job.attempts > 0) return NextResponse.json({ job, deduplicated: true }, { status: 200 })
   try {

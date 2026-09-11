@@ -1,4 +1,5 @@
 import { jsonb, numeric, pgTable, text, timestamp, uuid, integer, index, boolean, uniqueIndex } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -119,7 +120,7 @@ export const generationJobs = pgTable('generation_jobs', {
   result: jsonb('result'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectStatusIdx: index('generation_jobs_project_status_idx').on(table.projectId, table.status, table.createdAt) }))
+}, (table) => ({ projectStatusIdx: index('generation_jobs_project_status_idx').on(table.projectId, table.status, table.createdAt), projectIdempotencyUnique: uniqueIndex('generation_jobs_project_idempotency_unique').on(table.projectId, table.idempotencyKey).where(sql`"idempotencyKey" IS NOT NULL`) }))
 
 export const filmBibles = pgTable('film_bibles', {
   id: uuid('id').defaultRandom().primaryKey(),
