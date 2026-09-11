@@ -14,27 +14,42 @@ export function CharacterManager({ projectId }: { projectId: string }) {
   const active = characters.find((character) => character.id === activeId)
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}/characters`).then((response) => response.json()).then((data) => {
-      const next = data.characters ?? []
-      setCharacters(next)
-      setActiveId(next[0]?.id)
-    }).finally(() => setLoading(false))
+    let cancelled = false
+    async function loadCharacters() {
+      try {
+        const response = await fetch(`/api/projects/${projectId}/characters`, { cache: 'no-store' })
+        const data = await response.json()
+        if (!cancelled && response.ok) {
+          const next = data.characters ?? []
+          setCharacters(next)
+          setActiveId(next[0]?.id)
+        }
+        if (!cancelled && !response.ok) setMessage(data.error || 'Unable to load characters')
+      } catch { if (!cancelled) setMessage('Unable to load characters. Check your connection.') }
+      finally { if (!cancelled) setLoading(false) }
+    }
+    loadCharacters()
+    return () => { cancelled = true }
   }, [projectId])
 
   async function addCharacter() {
-    const response = await fetch(`/api/projects/${projectId}/characters`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'New character' }) })
-    if (!response.ok) return
-    const data = await response.json()
-    setCharacters((current) => [...current, data.character])
-    setActiveId(data.character.id)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/characters`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'New character' }) })
+      const data = await response.json()
+      if (!response.ok) { setMessage(data.error || 'Character could not be added'); return }
+      setCharacters((current) => [...current, data.character])
+      setActiveId(data.character.id)
+    } catch { setMessage('Character could not be added. Check your connection.') }
   }
 
   async function saveCharacter() {
     if (!active) return
     setSaving(true)
-    const response = await fetch(`/api/projects/${projectId}/characters/${active.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(active) })
-    setSaving(false)
-    setMessage(response.ok ? 'Character saved' : 'Save failed')
+    try {
+      const response = await fetch(`/api/projects/${projectId}/characters/${active.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(active) })
+      setMessage(response.ok ? 'Character saved' : 'Save failed')
+    } catch { setMessage('Save failed. Check your connection.') }
+    finally { setSaving(false) }
     window.setTimeout(() => setMessage(''), 2200)
   }
 
