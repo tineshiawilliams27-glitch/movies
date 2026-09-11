@@ -22,7 +22,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const sceneIdValue = new URL(request.url).searchParams.get('sceneId')
   const sceneId = sceneIdValue && z.string().uuid().safeParse(sceneIdValue).success ? sceneIdValue : undefined
   const jobs = await db.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id), sceneId ? eq(generationJobs.sceneId, sceneId) : undefined)).orderBy(desc(generationJobs.createdAt)).limit(50)
-  return NextResponse.json({ jobs })
+  return NextResponse.json({ jobs: Array.isArray(jobs) ? jobs : [] })
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
