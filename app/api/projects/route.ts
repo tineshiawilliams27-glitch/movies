@@ -26,5 +26,6 @@ export async function POST(request: Request) {
   const parsed = projectSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid project payload.', issues: parsed.error.issues }, { status: 400 })
   const [project] = await db.insert(projects).values({ ...parsed.data, userId, durationSeconds: String(parsed.data.durationSeconds ?? 0) }).returning()
+  if (!project?.id) return NextResponse.json({ error: 'Project could not be created.' }, { status: 500 })
   return NextResponse.json({ project }, { status: 201 })
 }
