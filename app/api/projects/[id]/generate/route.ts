@@ -63,12 +63,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       for (const character of output.characters) await tx.insert(filmCharacters).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, stableKey: character.stableKey, name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity })
       for (const shot of output.shots) await tx.insert(storyboardShots).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt })
       const jobs: Array<{ id: string; type: string; payload: Record<string, unknown> }> = []
-      const scenePayload = { userId: session.user.id, projectId: id, shots: output.shots.map((shot) => ({ shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, dialogue: shot.dialogue, location: shot.sceneLabel, durationSeconds: shot.durationSeconds })) }
-      const [sceneJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: 'SCENE_BREAKDOWN', payload: scenePayload, idempotencyKey: `scene-breakdown:${createdRun.version}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
-      if (sceneJob) {
-        await tx.insert(generationOutbox).values({ jobId: sceneJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: sceneJob.id, type: 'SCENE_BREAKDOWN', payload: scenePayload } })
-        jobs.push({ id: sceneJob.id, type: 'SCENE_BREAKDOWN', payload: scenePayload })
-      }
       for (const shot of output.shots) {
         const idempotencyKey = `video:${createdRun.version}:${shot.shotNumber}:${shot.framePrompt}`
         const payload = { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood }
@@ -80,8 +74,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         const stageJobs = [
           { type: 'IMAGE_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: `${shot.framePrompt}\n\nScene: ${shot.sceneLabel}. Shot type: ${shot.shotType}. Camera movement: ${shot.cameraMovement}. Lighting: ${shot.lighting}. Mood: ${shot.mood}. Preserve character and location continuity across the film.`, durationSeconds: shot.durationSeconds, aspectRatio: '16:9', stage: 'visual' } },
           { type: 'AUDIO_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, text: shot.dialogue || `Ambient sound design for ${shot.title}`, prompt: shot.dialogue || `Ambient sound design for ${shot.title}`, durationSeconds: shot.durationSeconds, stage: 'voice' } },
-          { type: 'TIMELINE', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, sceneId: shot.sceneLabel, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline' } },
-          { type: 'VIDEO_EXPORT', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'export' } },
         ]
         for (const stageJob of stageJobs) {
           const [createdStageJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: stageJob.type, payload: stageJob.payload, idempotencyKey: `${stageJob.type.toLowerCase()}:${createdRun.version}:${shot.shotNumber}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
@@ -91,17 +83,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           }
         }
       }
+      const timelinePayload = { userId: session.user.id, projectId: id, generationRunId: createdRun.id, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline' }
+      const exportPayload = { ...timelinePayload, stage: 'export' }
+      for (const stageJob of [{ type: 'TIMELINE', payload: timelinePayload }, { type: 'VIDEO_EXPORT', payload: exportPayload }]) {
+        const [createdStageJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: stageJob.type, payload: stageJob.payload, idempotencyKey: `${stageJob.type.toLowerCase()}:${createdRun.version}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
+        if (createdStageJob) {
+          await tx.insert(generationOutbox).values({ jobId: createdStageJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdStageJob.id, type: stageJob.type, payload: stageJob.payload } })
+          jobs.push({ id: createdStageJob.id, type: stageJob.type, payload: stageJob.payload })
+        }
+      }
       return { run: createdRun, jobs }
     }).catch((error) => {
       console.error('[v0] pipeline transaction rolled back', error)
       throw error
     })
-    const stageOrder: Record<string, number> = { SCENE_BREAKDOWN: 0, IMAGE_GENERATION: 1, AUDIO_GENERATION: 2, VIDEO_GENERATION: 3, TIMELINE: 4, VIDEO_EXPORT: 5 }
+    const stageOrder: Record<string, number> = { IMAGE_GENERATION: 0, AUDIO_GENERATION: 1, VIDEO_GENERATION: 2, TIMELINE: 3, VIDEO_EXPORT: 4 }
     const orderedJobs = jobs.map((job) => ({ jobId: job.id, type: job.type, payload: job.payload })).sort((left, right) => {
       const leftShot = Number(left.payload.shotNumber ?? -1)
       const rightShot = Number(right.payload.shotNumber ?? -1)
-      if (left.type === 'SCENE_BREAKDOWN') return -1
-      if (right.type === 'SCENE_BREAKDOWN') return 1
+      const leftIsFinalStage = left.type === 'TIMELINE' || left.type === 'VIDEO_EXPORT'
+      const rightIsFinalStage = right.type === 'TIMELINE' || right.type === 'VIDEO_EXPORT'
+      if (leftIsFinalStage && !rightIsFinalStage) return 1
+      if (!leftIsFinalStage && rightIsFinalStage) return -1
+      if (leftIsFinalStage && rightIsFinalStage) return (stageOrder[left.type] ?? 99) - (stageOrder[right.type] ?? 99)
       return leftShot - rightShot || (stageOrder[left.type] ?? 99) - (stageOrder[right.type] ?? 99)
     })
     const run = await start(processGenerationPipeline, [orderedJobs, session.user.id])
