@@ -83,7 +83,12 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     setMessage('Queuing visual job...')
     try {
       const response = await fetch(`/api/projects/${projectId}/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'IMAGE_GENERATION', sceneId: activeScene.id, payload: { prompt: activeScene.description, location: activeScene.location } }) })
-      setMessage(response.ok ? 'Visual job queued' : 'Queue failed')
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setMessage(data?.error || 'Queue failed')
+        return
+      }
+      setMessage('Visual job queued')
     } catch { setMessage('Queue failed. Check your connection.') }
     window.setTimeout(() => setMessage(''), 2400)
   }
@@ -106,7 +111,12 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
           setActiveId((current) => current ?? data.scenes?.[0]?.id ?? null)
         }
       }
-      setMessage(response.ok ? 'Pipeline generated and clips queued' : 'Pipeline failed')
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setMessage(data?.error || 'Pipeline failed')
+        return
+      }
+      setMessage('Pipeline generated and clips queued')
     } catch { setMessage('Pipeline failed. Check your connection and try again.') }
     window.setTimeout(() => setMessage(''), 3200)
   }
