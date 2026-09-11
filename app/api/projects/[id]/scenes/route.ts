@@ -24,16 +24,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const userId = await getUserId()
   if (!userId) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, userId))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const rows = await db.select().from(scenes).where(and(eq(scenes.projectId, id), eq(scenes.userId, userId))).orderBy(asc(scenes.sceneNumber))
-  return NextResponse.json({ scenes: rows })
+  return NextResponse.json({ scenes: Array.isArray(rows) ? rows : [] })
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const userId = await getUserId()
   if (!userId) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, userId))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const parsed = sceneSchema.safeParse(await request.json().catch(() => null))
