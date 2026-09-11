@@ -18,7 +18,7 @@ export function AudioStudio({ projectId }: { projectId: string }) {
         const response = await fetch(`/api/projects/${projectId}`, { cache: 'no-store' })
         const data = await response.json()
         if (!response.ok) throw new Error(data.error || 'Unable to load project')
-        const savedTracks = Array.isArray(data.project.metadata?.audioTracks) ? data.project.metadata.audioTracks : []
+        const savedTracks = Array.isArray(data.project?.metadata?.audioTracks) ? data.project.metadata.audioTracks : []
         if (!cancelled) setTracks(savedTracks)
       } catch (reason) {
         if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to load audio project')

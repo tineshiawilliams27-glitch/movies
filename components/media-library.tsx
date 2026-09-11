@@ -19,7 +19,7 @@ export function MediaLibrary({ projectId }: { projectId: string }) {
       const response = await fetch(`/api/projects/${projectId}/media`, { cache: 'no-store' })
       if (!response.ok) throw new Error('Unable to load assets')
       const data = await response.json()
-      setAssets(data.assets ?? [])
+      setAssets(Array.isArray(data.assets) ? data.assets : [])
     } catch {
       setMessage('Unable to load assets. Check your connection.')
     } finally {

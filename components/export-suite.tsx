@@ -55,7 +55,12 @@ export function ExportSuite({ projectId }: { projectId: string }) {
         return
       }
       const data = await response.json()
-      if (data.job) setLatestJob(data.job)
+      if (!data.job?.id) {
+        setStatus('error')
+        setError('The export was queued without a valid job record. Please try again.')
+        return
+      }
+      setLatestJob(data.job)
       window.setTimeout(() => setStatus('idle'), 2400)
     } catch {
       setStatus('error')
