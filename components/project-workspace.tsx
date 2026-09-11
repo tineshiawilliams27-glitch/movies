@@ -70,16 +70,21 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   }
 
   async function addScene() {
-    const response = await fetch(`/api/projects/${projectId}/scenes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: `Scene ${scenes.length + 1}`, description: '', dialogue: '', location: 'New location', timeOfDay: 'Day', durationSeconds: 10 }) })
-    const data = await response.json()
-    if (response.ok) { setScenes((current) => [...current, data.scene]); setActiveId(data.scene.id); setMessage('Scene added') }
+    try {
+      const response = await fetch(`/api/projects/${projectId}/scenes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: `Scene ${scenes.length + 1}`, description: '', dialogue: '', location: 'New location', timeOfDay: 'Day', durationSeconds: 10 }) })
+      const data = await response.json()
+      if (response.ok) { setScenes((current) => [...current, data.scene]); setActiveId(data.scene.id); setMessage('Scene added') }
+      else setMessage(data.error || 'Scene could not be added')
+    } catch { setMessage('Scene could not be added. Check your connection.') }
   }
 
   async function generateVisual() {
     if (!activeScene) return
     setMessage('Queuing visual job...')
-    const response = await fetch(`/api/projects/${projectId}/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'IMAGE_GENERATION', sceneId: activeScene.id, payload: { prompt: activeScene.description, location: activeScene.location } }) })
-    setMessage(response.ok ? 'Visual job queued' : 'Queue failed')
+    try {
+      const response = await fetch(`/api/projects/${projectId}/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'IMAGE_GENERATION', sceneId: activeScene.id, payload: { prompt: activeScene.description, location: activeScene.location } }) })
+      setMessage(response.ok ? 'Visual job queued' : 'Queue failed')
+    } catch { setMessage('Queue failed. Check your connection.') }
     window.setTimeout(() => setMessage(''), 2400)
   }
 
@@ -107,9 +112,11 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   async function saveScene() {
     if (!activeScene) return
     setSaving(true)
-    const response = await fetch(`/api/projects/${projectId}/scenes/${activeScene.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(activeScene) })
-    setSaving(false)
-    setMessage(response.ok ? 'Saved' : 'Save failed')
+    try {
+      const response = await fetch(`/api/projects/${projectId}/scenes/${activeScene.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(activeScene) })
+      setMessage(response.ok ? 'Saved' : 'Save failed')
+    } catch { setMessage('Save failed. Check your connection.') }
+    finally { setSaving(false) }
     window.setTimeout(() => setMessage(''), 2000)
   }
 
