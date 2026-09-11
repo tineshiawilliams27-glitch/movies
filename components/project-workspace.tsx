@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Check, Loader2, Plus, Save, Sparkles, WandSparkles } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Bell, Check, Loader2, Plus, Save, Sparkles, WandSparkles, X } from 'lucide-react'
 import { WorkspaceNavigation } from '@/components/workspace-navigation'
 
 type Scene = { id: string; sceneNumber: number; title: string; description: string; dialogue: string; location: string; timeOfDay: string; durationSeconds: string }
@@ -15,6 +15,8 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [notifications, setNotifications] = useState<Array<{ id: number; title: string; detail: string; createdAt: string }>>([])
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [pipelinePrompt, setPipelinePrompt] = useState('A tense, intimate short film about memory and the cost of telling the truth.')
   const [pipelineLoading, setPipelineLoading] = useState(false)
   const [activeJob, setActiveJob] = useState<{ id: string; status: string; progress: number; stage: string } | null>(null)
@@ -28,6 +30,13 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   ]
   const activeScene = scenes.find((scene) => scene.id === activeId) ?? scenes[0]
   const activeSceneId = activeScene?.id
+
+  const reportError = useCallback((title: string, detail: string) => {
+    setMessage(detail)
+    setNotifications((current) => [{ id: Date.now(), title, detail, createdAt: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) }, ...current].slice(0, 8))
+  }, [])
+
+  const clearNotifications = useCallback(() => setNotifications([]), [])
 
   useEffect(() => {
     if (!activeSceneId) return
@@ -64,10 +73,10 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
         if (filmResponse.ok) {
           const data = await filmResponse.json()
           if (data?.project && Array.isArray(data.characters) && Array.isArray(data.shots) && Array.isArray(data.timeline)) setFilm(data)
-          else setLoadError('Unable to load project data.')
+          else { const detail = 'Unable to load project data.'; setLoadError(detail); reportError('Project load failed', detail) }
         } else {
           const data = await filmResponse.json().catch(() => null) as { error?: string } | null
-          setLoadError(data?.error || 'Unable to load project.')
+          const detail = data?.error || 'Unable to load project.'; setLoadError(detail); reportError('Project load failed', detail)
         }
         if (scenesResponse.ok) {
           const data = await scenesResponse.json()
@@ -76,11 +85,11 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
           setActiveId(nextScenes[0]?.id ?? null)
         } else {
           const data = await scenesResponse.json().catch(() => null) as { error?: string } | null
-          setLoadError(data?.error || 'Unable to load project scenes.')
+          const detail = data?.error || 'Unable to load project scenes.'; setLoadError(detail); reportError('Scene load failed', detail)
         }
         if (!filmResponse.ok || !scenesResponse.ok) return
       } catch {
-        if (!cancelled) setLoadError('Unable to load project. Check your connection.')
+        if (!cancelled) { const detail = 'Unable to load project. Check your connection.'; setLoadError(detail); reportError('Connection error', detail) }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -88,7 +97,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
 
     loadWorkspace()
     return () => { cancelled = true }
-  }, [projectId, loadAttempt])
+  }, [projectId, loadAttempt, reportError])
 
   function updateScene(field: keyof Scene, value: string) {
     if (!activeScene) return
@@ -100,8 +109,8 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
       const response = await fetch(`/api/projects/${projectId}/scenes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: `Scene ${scenes.length + 1}`, description: '', dialogue: '', location: 'New location', timeOfDay: 'Day', durationSeconds: 10 }) })
       const data = await response.json()
       if (response.ok && data.scene?.id) { setScenes((current) => [...current, data.scene]); setActiveId(data.scene.id); setMessage('Scene added') }
-      else setMessage(data.error || 'Scene could not be added')
-    } catch { setMessage('Scene could not be added. Check your connection.') }
+      else { const detail = data.error || 'Scene could not be added'; reportError('Scene action failed', detail) }
+    } catch { reportError('Connection error', 'Scene could not be added. Check your connection.') }
   }
 
   async function generateVisual() {
@@ -115,11 +124,11 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
       window.clearTimeout(timeout)
       if (!response.ok) {
         const data = await response.json().catch(() => null) as { error?: string } | null
-        setMessage(data?.error || 'Queue failed')
+        reportError('Visual generation failed', data?.error || 'Queue failed')
         return
       }
       setMessage('Visual job queued')
-    } catch (error) { setMessage(error instanceof DOMException && error.name === 'AbortError' ? 'Visual request timed out. Retry.' : 'Queue failed. Check your connection. Retry.') }
+    } catch (error) { reportError('Visual generation failed', error instanceof DOMException && error.name === 'AbortError' ? 'Visual request timed out. Retry.' : 'Queue failed. Check your connection. Retry.') }
     finally { setGenerationBusy(false) }
     window.setTimeout(() => setMessage(''), 2400)
   }
@@ -152,7 +161,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
       }
       if (!response.ok) {
         const data = await response.json().catch(() => null) as { error?: string; details?: string } | null
-        setMessage(data?.error || data?.details || 'Pipeline failed')
+        reportError('Pipeline failed', data?.error || data?.details || 'Pipeline failed')
         return
       }
       setMessage('Pipeline generated and clips queued')
@@ -171,17 +180,17 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
       const response = await fetch(`/api/projects/${projectId}/scenes/${activeScene.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(activeScene) })
       if (!response.ok) {
         const data = await response.json().catch(() => null) as { error?: string } | null
-        setMessage(data?.error || 'Save failed')
+        reportError('Save failed', data?.error || 'Save failed')
         return
       }
       setMessage('Saved')
-    } catch { setMessage('Save failed. Check your connection.') }
+    } catch { reportError('Save failed', 'Save failed. Check your connection.') }
     finally { setSaving(false) }
     window.setTimeout(() => setMessage(''), 2000)
   }
 
   return <main className="min-h-screen bg-background text-foreground">
-    <header className="flex items-center justify-between border-b border-border px-5 py-4 md:px-8"><div className="flex items-center gap-3"><Link href="/dashboard" className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground" aria-label="Back to dashboard"><WandSparkles size={17} /></Link><div><p className="text-xs text-muted-foreground">Project workspace</p><h1 className="font-serif text-xl">{film?.project.title || 'Untitled project'}</h1></div></div><div className="flex items-center gap-2 text-sm text-muted-foreground">{message && <span role="status" className="flex items-center gap-1 text-primary"><Check size={14} />{message}</span>}<button onClick={saveScene} disabled={!activeScene || saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 font-medium text-primary-foreground disabled:opacity-50"><Save size={15} />{saving ? 'Saving' : 'Save'}</button></div></header>
+    <header className="flex items-center justify-between border-b border-border px-5 py-4 md:px-8"><div className="flex items-center gap-3"><Link href="/dashboard" className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground" aria-label="Back to dashboard"><WandSparkles size={17} /></Link><div><p className="text-xs text-muted-foreground">Project workspace</p><h1 className="font-serif text-xl">{film?.project.title || 'Untitled project'}</h1></div></div><div className="flex items-center gap-2 text-sm text-muted-foreground">{message && <span role="status" className="flex items-center gap-1 text-primary"><Check size={14} />{message}</span>}<div className="relative"><button type="button" onClick={() => setNotificationsOpen((open) => !open)} className="relative inline-flex size-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label={`Error notifications${notifications.length ? `, ${notifications.length} unread` : ''}`} aria-expanded={notificationsOpen}><Bell size={16} />{notifications.length > 0 && <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-4 text-destructive-foreground">{notifications.length > 9 ? '9+' : notifications.length}</span>}</button>{notificationsOpen && <div className="absolute right-0 top-11 z-30 w-80 rounded-xl border border-border bg-card p-3 text-card-foreground shadow-xl"><div className="flex items-center justify-between border-b border-border pb-2"><div className="flex items-center gap-2 text-sm font-semibold"><AlertTriangle size={15} className="text-destructive" />Error notifications</div><button type="button" onClick={clearNotifications} disabled={!notifications.length} className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50">Clear all</button></div>{notifications.length ? <div className="max-h-64 overflow-y-auto pt-2">{notifications.map((notification) => <div key={notification.id} className="flex gap-2 border-b border-border py-2 last:border-0"><AlertTriangle size={14} className="mt-0.5 shrink-0 text-destructive" /><div className="min-w-0 flex-1"><p className="text-xs font-medium">{notification.title}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{notification.detail}</p><p className="mt-1 text-[10px] text-muted-foreground">{notification.createdAt}</p></div><button type="button" onClick={() => setNotifications((current) => current.filter((item) => item.id !== notification.id))} className="shrink-0 text-muted-foreground hover:text-foreground" aria-label={`Dismiss ${notification.title}`}><X size={13} /></button></div>)}</div> : <p className="py-5 text-center text-xs text-muted-foreground">No recent errors.</p>}</div>}</div><button onClick={saveScene} disabled={!activeScene || saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 font-medium text-primary-foreground disabled:opacity-50"><Save size={15} />{saving ? 'Saving' : 'Save'}</button></div></header>
     <div className="mx-auto max-w-[1500px] px-5 py-6 md:px-8"><WorkspaceNavigation projectId={projectId} />{loading ? <div className="mt-6 flex items-center gap-2 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground" role="status"><Loader2 className="animate-spin" size={16} />Loading project...</div> : loadError ? <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm" role="alert"><span className="text-destructive">{loadError}</span><button type="button" onClick={() => setLoadAttempt((attempt) => attempt + 1)} className="rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground">Try Again</button></div> : <div className="mt-6 flex items-center gap-2 rounded-2xl border border-primary/25 bg-primary/5 px-4 py-3 text-sm text-primary" role="status"><Check size={16} />Project loaded</div>}<section aria-label="Generation workflow" className="mt-6 grid gap-3 rounded-2xl border border-border bg-card p-4 md:grid-cols-4">{workflowSteps.map((step, index) => <div key={step.label} className="flex items-start gap-3"><span className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${step.done ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{step.done ? <Check size={14} /> : index + 1}</span><span className={`text-sm leading-6 ${step.done ? 'text-foreground' : 'text-muted-foreground'}`}>{step.label}</span></div>)}</section>{film?.bible && <section className="mt-6 grid gap-3 rounded-2xl border border-border bg-card p-4 md:grid-cols-[1fr_auto] md:items-center"><div><p className="text-xs font-medium uppercase tracking-[0.18em] text-accent">Film bible</p><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{film.bible.logline || 'Your generated logline will appear here.'}</p></div><div className="flex flex-wrap gap-2 text-xs text-muted-foreground"><span className="rounded-full bg-muted px-3 py-1">{film.characters.length} characters</span><span className="rounded-full bg-muted px-3 py-1">{film.shots.length} shots</span><span className="rounded-full bg-muted px-3 py-1">{film.timeline.length} timeline items</span><span className="rounded-full bg-muted px-3 py-1">{film.shots.filter((shot) => shot.status === 'COMPLETED').length} clips ready</span></div></section>}{film?.bible && <div className="mt-4 grid gap-4 md:grid-cols-3"><section className="rounded-2xl border border-border bg-card p-4"><p className="text-xs font-medium uppercase tracking-[0.16em] text-accent">Acts</p><p className="mt-3 text-2xl font-serif">{film.bible.acts.length}</p><p className="text-xs text-muted-foreground">story movements generated</p></section><section className="rounded-2xl border border-border bg-card p-4"><p className="text-xs font-medium uppercase tracking-[0.16em] text-accent">Screenplay</p><p className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">{film.bible.screenplay || 'Screenplay formatting will appear here.'}</p></section><section className="rounded-2xl border border-border bg-card p-4"><p className="text-xs font-medium uppercase tracking-[0.16em] text-accent">Style bible</p><p className="mt-3 text-sm leading-6 text-muted-foreground">{Object.keys(film.bible.styleBible).length} continuity rules ready</p></section></div>}<div className="mb-6 mt-6 flex items-center justify-between"><div><p className="text-xs font-medium uppercase tracking-[0.18em] text-accent">Scene builder</p><h2 className="mt-2 font-serif text-3xl">Shape the next beat.</h2></div><div className="flex items-center gap-2"><button onClick={() => void generatePipeline()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"><Sparkles size={15} />Generate full pipeline</button><button onClick={addScene} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent"><Plus size={15} />New scene</button></div></div>
       {loading ? <div className="flex min-h-[400px] items-center justify-center text-muted-foreground"><Loader2 className="mr-2 animate-spin" size={18} />Loading scenes</div> : <div className="grid gap-6 lg:grid-cols-[280px_1fr]"><aside className="rounded-2xl border border-border bg-card p-3"><div className="mb-3 flex items-center justify-between px-2"><span className="text-sm font-medium">Scenes</span><span className="text-xs text-muted-foreground">{scenes.length}</span></div>{scenes.length === 0 ? <p className="p-3 text-sm text-muted-foreground">No scenes yet. Add the first beat.</p> : <div className="flex flex-col gap-1">{scenes.map((scene) => <button key={scene.id} onClick={() => setActiveId(scene.id)} className={`rounded-lg px-3 py-3 text-left ${scene.id === activeScene?.id ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}><span className="text-[11px] opacity-70">{String(scene.sceneNumber).padStart(2, '0')}</span><span className="mt-1 block truncate text-sm font-medium">{scene.title}</span><span className="mt-1 block text-xs opacity-70">{scene.durationSeconds}s · {scene.location || 'Unassigned'}</span></button>)}</div>}</aside>
         <section className="rounded-2xl border border-border bg-card p-5 md:p-7">{activeScene ? <><div className="flex items-start justify-between gap-4"><div><span className="text-xs text-accent">SCENE {String(activeScene.sceneNumber).padStart(2, '0')}</span><input value={activeScene.title} onChange={(event) => updateScene('title', event.target.value)} className="mt-2 block w-full bg-transparent font-serif text-3xl outline-none" aria-label="Scene title" /></div><div className="flex items-center gap-2"><button onClick={generateVisual} disabled={!activeScene || generationBusy || activeJob?.status === 'PROCESSING' || activeJob?.status === 'QUEUED'} className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground disabled:opacity-50"><Sparkles size={15} />{generationBusy ? 'Queuing…' : activeJob?.status === 'FAILED' ? 'Retry visual' : 'Generate visual'}</button></div></div>{activeJob && <div className="mt-5 rounded-xl border border-accent/30 bg-accent/10 p-4" role="status"><div className="flex items-center justify-between text-sm"><span className="font-medium">{activeJob.stage}</span><span className="text-muted-foreground">{activeJob.progress}%</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${activeJob.progress}%` }} /></div><p className="mt-2 text-xs text-muted-foreground">{activeJob.status === 'QUEUED' ? 'Waiting for a worker' : activeJob.status === 'FAILED' || activeJob.status === 'DEAD_LETTER' ? 'Generation failed. Use Retry visual to try again.' : activeJob.status === 'CANCELLED' ? 'Generation was cancelled.' : activeJob.status === 'COMPLETED' ? 'Generation complete.' : 'Processing on the generation worker'}</p></div>}<div className="mt-8 grid gap-5 md:grid-cols-2"><label className="text-sm font-medium">Location<input value={activeScene.location} onChange={(event) => updateScene('location', event.target.value)} className="mt-2 w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring" /></label><label className="text-sm font-medium">Time<input value={activeScene.timeOfDay} onChange={(event) => updateScene('timeOfDay', event.target.value)} className="mt-2 w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring" /></label></div><label className="mt-5 block text-sm font-medium">Description<textarea value={activeScene.description} onChange={(event) => updateScene('description', event.target.value)} rows={5} className="mt-2 w-full resize-y rounded-lg border border-input bg-background px-3 py-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" placeholder="What happens in this scene?" /></label><label className="mt-5 block text-sm font-medium">Dialogue<textarea value={activeScene.dialogue} onChange={(event) => updateScene('dialogue', event.target.value)} rows={5} className="mt-2 w-full resize-y rounded-lg border border-input bg-background px-3 py-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" placeholder="Write dialogue or narration..." /></label><label className="mt-5 block max-w-xs text-sm font-medium">Duration (seconds)<input type="number" min="0.1" step="0.1" value={activeScene.durationSeconds} onChange={(event) => updateScene('durationSeconds', event.target.value)} className="mt-2 w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring" /></label></> : <div className="flex min-h-[420px] items-center justify-center text-center text-muted-foreground">Create a scene to start building your storyboard.</div>}</section></div>}
