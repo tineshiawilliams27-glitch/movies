@@ -20,7 +20,7 @@ const videoProvider = configured(process.env.VIDEO_PROVIDER ?? process.env.VIDEO
 const imageProvider = configured(process.env.IMAGE_PROVIDER, 'replicate')
 const voiceProvider = configured(process.env.VOICE_PROVIDER ?? process.env.AUDIO_PROVIDER, 'elevenlabs')
 const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
-const protofaceEndpoint = (process.env.PROTOFACE_API_URL || 'https://api.protoface.com/v1/video/generations').trim()
+const protofaceEndpoint = (process.env.PROTOFACE_API_URL || 'https://api.protoface.com/v1/runs').trim()
 const protofaceApiKey = (process.env.PROTOFACE_API_KEY || process.env.API_KEY || '').trim()
 const protofaceModel = (process.env.PROTOFACE_VIDEO_MODEL || 'video-generation').trim()
 const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()
@@ -175,7 +175,7 @@ const protofaceVideoProvider: GenerationProvider = async ({ jobId, payload, onPr
   for (let attempt = 0; operationId && attempt < 90 && !['succeeded', 'completed', 'failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase()); attempt += 1) {
     await onProgress?.(Math.min(95, 10 + Math.round((attempt / 90) * 85)), operation.status === 'queued' ? 'Queued with Protoface' : 'Rendering video with Protoface')
     await new Promise((resolve) => setTimeout(resolve, 3000))
-    const response = await fetch(`${protofaceEndpoint.replace(/\\/$/, '')}/${encodeURIComponent(operationId)}`, { headers: { authorization: `Bearer ${protofaceApiKey}` } })
+    const response = await fetch(`${protofaceEndpoint.replace(/\/$/, '')}/${encodeURIComponent(operationId)}`, { headers: { authorization: `Bearer ${protofaceApiKey}` } })
     if (!response.ok) throw new Error(`Protoface polling failed with ${response.status}.`)
     operation = await response.json()
   }
