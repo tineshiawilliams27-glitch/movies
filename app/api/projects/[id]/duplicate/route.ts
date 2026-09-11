@@ -13,6 +13,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   if (!source) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const result = await db.transaction(async (tx) => {
     const [copy] = await tx.insert(projects).values({ userId: session.user.id, title: `${source.title} copy`, concept: source.concept, format: source.format, durationSeconds: source.durationSeconds, status: 'DRAFT', metadata: source.metadata }).returning()
+    if (!copy?.id) throw new Error('Project copy could not be created.')
     const sourceScenes = await tx.select().from(scenes).where(and(eq(scenes.projectId, id), eq(scenes.userId, session.user.id)))
     if (sourceScenes.length) await tx.insert(scenes).values(sourceScenes.map((scene) => ({ userId: session.user.id, projectId: copy.id, sceneNumber: scene.sceneNumber, title: scene.title, description: scene.description, dialogue: scene.dialogue, location: scene.location, timeOfDay: scene.timeOfDay, durationSeconds: scene.durationSeconds, metadata: scene.metadata })))
     const sourceCharacters = await tx.select().from(characters).where(and(eq(characters.projectId, id), eq(characters.userId, session.user.id)))
