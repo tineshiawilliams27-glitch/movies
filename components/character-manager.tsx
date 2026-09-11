@@ -37,6 +37,7 @@ export function CharacterManager({ projectId }: { projectId: string }) {
       const response = await fetch(`/api/projects/${projectId}/characters`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'New character' }) })
       const data = await response.json()
       if (!response.ok) { setMessage(data.error || 'Character could not be added'); return }
+      if (!data.character?.id) { setMessage('Character was added without a valid record'); return }
       setCharacters((current) => [...current, data.character])
       setActiveId(data.character.id)
     } catch { setMessage('Character could not be added. Check your connection.') }
@@ -47,7 +48,12 @@ export function CharacterManager({ projectId }: { projectId: string }) {
     setSaving(true)
     try {
       const response = await fetch(`/api/projects/${projectId}/characters/${active.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(active) })
-      setMessage(response.ok ? 'Character saved' : 'Save failed')
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setMessage(data?.error || 'Save failed')
+        return
+      }
+      setMessage('Character saved')
     } catch { setMessage('Save failed. Check your connection.') }
     finally { setSaving(false) }
     window.setTimeout(() => setMessage(''), 2200)
