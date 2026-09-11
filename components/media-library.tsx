@@ -14,9 +14,17 @@ export function MediaLibrary({ projectId }: { projectId: string }) {
   const [message, setMessage] = useState('')
 
   const loadAssets = useCallback(async () => {
-    const response = await fetch(`/api/projects/${projectId}/media`)
-    if (response.ok) setAssets((await response.json()).assets)
-    setLoading(false)
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/media`, { cache: 'no-store' })
+      if (!response.ok) throw new Error('Unable to load assets')
+      const data = await response.json()
+      setAssets(data.assets ?? [])
+    } catch {
+      setMessage('Unable to load assets. Check your connection.')
+    } finally {
+      setLoading(false)
+    }
   }, [projectId])
 
   useEffect(() => { void loadAssets() }, [loadAssets])
@@ -26,10 +34,20 @@ export function MediaLibrary({ projectId }: { projectId: string }) {
     const formData = new FormData()
     formData.set('file', file)
     formData.set('kind', file.type.startsWith('image/') ? 'IMAGE' : file.type.startsWith('audio/') ? 'AUDIO' : 'VIDEO')
-    const response = await fetch(`/api/projects/${projectId}/media`, { method: 'POST', body: formData })
-    setUploading(false)
-    setMessage(response.ok ? 'Asset uploaded' : 'Upload failed')
-    if (response.ok) await loadAssets()
+    try {
+      const response = await fetch(`/api/projects/${projectId}/media`, { method: 'POST', body: formData })
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setMessage(data?.error || 'Upload failed')
+        return
+      }
+      setMessage('Asset uploaded')
+      await loadAssets()
+    } catch {
+      setMessage('Upload failed. Check your connection.')
+    } finally {
+      setUploading(false)
+    }
     window.setTimeout(() => setMessage(''), 2400)
   }
 
