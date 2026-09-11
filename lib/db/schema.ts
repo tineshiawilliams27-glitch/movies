@@ -98,6 +98,8 @@ export const mediaAssets = pgTable('media_assets', {
   contentType: text('contentType').notNull(),
   durationSeconds: numeric('durationSeconds'),
   metadata: jsonb('metadata').notNull().default({}),
+  sourceId: uuid('sourceId'),
+  version: integer('version').notNull().default(1),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({ projectAssetIdx: index('media_assets_project_created_idx').on(table.projectId, table.createdAt) }))
 
@@ -113,7 +115,78 @@ export const generationJobs = pgTable('generation_jobs', {
   attempts: integer('attempts').notNull().default(0),
   error: text('error'),
   payload: jsonb('payload').notNull().default({}),
+  idempotencyKey: text('idempotencyKey'),
   result: jsonb('result'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({ projectStatusIdx: index('generation_jobs_project_status_idx').on(table.projectId, table.status, table.createdAt) }))
+
+export const filmBibles = pgTable('film_bibles', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('userId').notNull(),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }).unique(),
+  logline: text('logline').notNull().default(''),
+  premise: text('premise').notNull().default(''),
+  midpoint: text('midpoint').notNull().default(''),
+  climax: text('climax').notNull().default(''),
+  themes: jsonb('themes').notNull().default([]),
+  acts: jsonb('acts').notNull().default([]),
+  screenplay: text('screenplay').notNull().default(''),
+  styleBible: jsonb('styleBible').notNull().default({}),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const filmCharacters = pgTable('film_characters', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('userId').notNull(),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  stableKey: text('stableKey').notNull(),
+  name: text('name').notNull(),
+  role: text('role').notNull().default(''),
+  description: text('description').notNull().default(''),
+  appearance: text('appearance').notNull().default(''),
+  voiceIdentity: jsonb('voiceIdentity').notNull().default({}),
+  referenceAssetId: uuid('referenceAssetId'),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ projectCharacterKeyUnique: uniqueIndex('film_characters_project_key_unique').on(table.projectId, table.stableKey) }))
+
+export const storyboardShots = pgTable('storyboard_shots', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('userId').notNull(),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  shotNumber: integer('shotNumber').notNull(),
+  sceneLabel: text('sceneLabel').notNull().default(''),
+  title: text('title').notNull().default(''),
+  description: text('description').notNull().default(''),
+  shotType: text('shotType').notNull().default(''),
+  cameraMovement: text('cameraMovement').notNull().default(''),
+  lighting: text('lighting').notNull().default(''),
+  mood: text('mood').notNull().default(''),
+  dialogue: text('dialogue').notNull().default(''),
+  effects: text('effects').notNull().default(''),
+  durationSeconds: numeric('durationSeconds').notNull().default('4'),
+  continuityNotes: text('continuityNotes').notNull().default(''),
+  framePrompt: text('framePrompt').notNull().default(''),
+  frameAssetId: uuid('frameAssetId'),
+  clipAssetId: uuid('clipAssetId'),
+  status: text('status').notNull().default('PLANNED'),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ projectShotUnique: uniqueIndex('storyboard_shots_project_number_unique').on(table.projectId, table.shotNumber) }))
+
+export const timelineItems = pgTable('timeline_items', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('userId').notNull(),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  trackType: text('trackType').notNull(),
+  label: text('label').notNull().default(''),
+  startSeconds: numeric('startSeconds').notNull().default('0'),
+  durationSeconds: numeric('durationSeconds').notNull().default('0'),
+  assetId: uuid('assetId'),
+  content: text('content').notNull().default(''),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+})

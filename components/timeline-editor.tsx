@@ -6,6 +6,7 @@ import { ArrowLeft, ChevronDown, GripVertical, Pause, Play, Plus, Scissors, Volu
 import { WorkspaceNavigation } from '@/components/workspace-navigation'
 
 type Scene = { id: string; sceneNumber: number; title: string; description: string; durationSeconds: string }
+type TimelineItem = { id: string; trackType: string; label: string; startSeconds: string; durationSeconds: string; content: string }
 type Track = { name: string; color: string; icon: typeof Play }
 
 const tracks: Track[] = [
@@ -18,12 +19,22 @@ const tracks: Track[] = [
 
 export function TimelineEditor({ projectId }: { projectId: string }) {
   const [scenes, setScenes] = useState<Scene[]>([])
+  const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([])
   const [playing, setPlaying] = useState(false)
   const [zoom, setZoom] = useState(1)
   const [cursor, setCursor] = useState(18)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/film`).then(async (response) => {
+      if (response.ok) {
+        const data = await response.json()
+        setTimelineItems(data.timeline ?? [])
+      }
+    }).catch(() => undefined)
+  }, [projectId])
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/scenes`).then(async (response) => {
@@ -33,7 +44,7 @@ export function TimelineEditor({ projectId }: { projectId: string }) {
     }).catch(() => setLoading(false))
   }, [projectId])
 
-  const totalSeconds = useMemo(() => scenes.reduce((total, scene) => total + Number(scene.durationSeconds || 0), 0), [scenes])
+  const totalSeconds = useMemo(() => timelineItems.length > 0 ? timelineItems.reduce((total, item) => Math.max(total, Number(item.startSeconds || 0) + Number(item.durationSeconds || 0)), 0) : scenes.reduce((total, scene) => total + Number(scene.durationSeconds || 0), 0), [scenes, timelineItems])
   const timelineWidth = Math.max(900, totalSeconds * 8 * zoom)
 
   async function saveTimeline() {

@@ -1,5 +1,6 @@
 import { createServer } from 'node:http'
 import { Redis } from '@upstash/redis'
+import { demoProvider, providerFor } from './providers/index'
 
 const port = Number(process.env.WORKER_PORT || 8787)
 const redis = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN ? Redis.fromEnv() : null
@@ -15,12 +16,13 @@ async function report(jobId: string, payload: Progress) {
   if (!response.ok) throw new Error(`Progress callback failed with ${response.status}.`)
 }
 
-async function processJob(jobId: string) {
+async function processJob(jobId: string, queuedPayload: Record<string, unknown> = {}) {
   try {
     await report(jobId, { status: 'PROCESSING', progress: 10, stage: 'Worker accepted job' })
-    await report(jobId, { status: 'PROCESSING', progress: 45, stage: demoMode ? 'Running deterministic demo provider' : 'Checking provider configuration' })
-    if (!demoMode) throw new Error('No provider adapter is configured. Set DEMO_MODE=true for deterministic local completions.')
-    await report(jobId, { status: 'COMPLETED', progress: 100, stage: 'Demo generation complete', result: { mode: 'demo', jobId, generatedAt: new Date().toISOString(), outputs: [] } })
+    await report(jobId, { status: 'PROCESSING', progress: 45, stage: demoMode ? 'Running deterministic demo provider' : 'Dispatching generation provider' })
+    const payload = { type: 'GENERATION_JOB', jobId, prompt: queuedPayload.prompt || process.env.VIDEO_PROMPT || 'Cinematic storyboard shot with natural movement and consistent visual identity.', durationSeconds: queuedPayload.durationSeconds || 4, ...queuedPayload }
+    const result = demoMode ? await demoProvider({ jobId, payload }) : await providerFor('VIDEO_GENERATION')({ jobId, payload })
+    await report(jobId, { status: 'COMPLETED', progress: 100, stage: 'Generation complete', result: { ...result.result, generatedAt: new Date().toISOString() } })
   } catch (error) {
     await report(jobId, { status: 'FAILED', progress: 45, stage: 'Generation failed', error: error instanceof Error ? error.message : 'Generation failed.' }).catch((callbackError) => console.error('[v0] worker callback failed', callbackError))
   }
@@ -29,9 +31,14 @@ async function processJob(jobId: string) {
 async function processJobs() {
   if (!redis) return
   while (true) {
-    const jobId = await redis.rpop<string>('lumen-forge:generation-jobs')
-    if (!jobId) { await new Promise((resolve) => setTimeout(resolve, 2000)); continue }
-    await processJob(String(jobId))
+    const queued = await redis.rpop<string>('lumen-forge:generation-jobs')
+    if (!queued) { await new Promise((resolve) => setTimeout(resolve, 2000)); continue }
+    try {
+      const parsed = JSON.parse(String(queued)) as { jobId: string; payload?: Record<string, unknown> }
+      await processJob(parsed.jobId, parsed.payload)
+    } catch {
+      await processJob(String(queued))
+    }
   }
 }
 
