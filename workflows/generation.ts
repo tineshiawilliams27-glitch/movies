@@ -19,14 +19,13 @@ async function executeGeneration(jobId: string, userId: string, type: string, qu
   'use step'
   const providerType = typeof queuedPayload.type === 'string' ? queuedPayload.type : type
   await db.update(generationJobs).set({ status: 'PROCESSING', progress: 10, stage: 'Workflow accepted job', attempts: 1, updatedAt: new Date() }).where(and(eq(generationJobs.id, jobId), eq(generationJobs.userId, userId)))
-  const stageLabels: Record<string, string> = { PIPELINE_GENERATION: 'Building editable story treatment', SCENE_BREAKDOWN: 'Breaking treatment into scenes', IMAGE_GENERATION: 'Generating visuals', AUDIO_GENERATION: 'Generating voices', VOICE_GENERATION: 'Generating voices', VIDEO_EXPORT: 'Building timeline export', VIDEO_GENERATION: 'Generating clips' }
+  const stageLabels: Record<string, string> = { PIPELINE_GENERATION: 'Building editable story treatment', SCENE_BREAKDOWN: 'Breaking treatment into scenes', IMAGE_GENERATION: 'Generating visuals', AUDIO_GENERATION: 'Generating voices', VOICE_GENERATION: 'Generating voices', TIMELINE: 'Assembling timeline', VIDEO_EXPORT: 'Building final export', VIDEO_GENERATION: 'Generating clips' }
   await updateJob(jobId, userId, { progress: 45, stage: stageLabels[providerType] || `Dispatching ${providerType.toLowerCase()} provider` })
   const payload = { type: providerType, jobId, prompt: queuedPayload.prompt || process.env.VIDEO_PROMPT || 'Cinematic storyboard shot with natural movement and consistent visual identity.', durationSeconds: queuedPayload.durationSeconds || 4, ...queuedPayload }
   return providerFor(providerType)({ jobId, payload })
 }
 
-export async function processGenerationJob(jobId: string, userId: string, type: string, payload: JobPayload) {
-  'use workflow'
+async function processStage(jobId: string, userId: string, type: string, payload: JobPayload) {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const result = await executeGeneration(jobId, userId, type, payload)
@@ -47,4 +46,20 @@ export async function processGenerationJob(jobId: string, userId: string, type: 
     }
   }
   return { status: 'DEAD_LETTER' as const }
+}
+
+export async function processGenerationJob(jobId: string, userId: string, type: string, payload: JobPayload) {
+  'use workflow'
+  return processStage(jobId, userId, type, payload)
+}
+
+export async function processGenerationPipeline(stages: Array<{ jobId: string; type: string; payload: JobPayload }>, userId: string) {
+  'use workflow'
+  const completed: string[] = []
+  for (const stage of stages) {
+    const result = await processStage(stage.jobId, userId, stage.type, stage.payload)
+    if (result.status !== 'COMPLETED') return { status: result.status, completed }
+    completed.push(stage.jobId)
+  }
+  return { status: 'COMPLETED' as const, completed }
 }

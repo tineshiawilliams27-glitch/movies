@@ -117,7 +117,7 @@ export function providerFor(type: string): GenerationProvider {
   if (type === 'IMAGE_GENERATION' && configured === 'replicate') return unavailableProvider('IMAGE_GENERATION (replicate adapter)')
   if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http' && audioEndpoint) return audioGenerationProvider
   if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return unavailableProvider('AUDIO_GENERATION (elevenlabs adapter)')
-  if (type === 'VIDEO_EXPORT' && configured === 'local') return videoExportProvider
+  if ((type === 'TIMELINE' || type === 'VIDEO_EXPORT') && configured === 'local') return videoExportProvider
   return unavailableProvider(`${type} (${configured || 'unknown'})`)
 }
 

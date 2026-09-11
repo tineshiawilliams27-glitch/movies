@@ -7,7 +7,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { filmBibles, filmCharacters, generationJobs, generationOutbox, generationRuns, projects, storyboardShots, timelineItems } from '@/lib/db/schema'
 import { start } from 'workflow/api'
-import { processGenerationJob } from '@/workflows/generation'
+import { processGenerationPipeline } from '@/workflows/generation'
 
 const requestSchema = z.object({
   kind: z.enum(['story', 'scene', 'character', 'visual', 'audio', 'pipeline']),
@@ -78,7 +78,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         const stageJobs = [
           { type: 'IMAGE_GENERATION', payload: { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, stage: 'visual' } },
           { type: 'AUDIO_GENERATION', payload: { shotNumber: shot.shotNumber, prompt: shot.dialogue || `Ambient sound design for ${shot.title}`, durationSeconds: shot.durationSeconds, stage: 'voice' } },
-          { type: 'VIDEO_EXPORT', payload: { shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline' } },
+          { type: 'TIMELINE', payload: { shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline' } },
+          { type: 'VIDEO_EXPORT', payload: { shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'export' } },
         ]
         for (const stageJob of stageJobs) {
           const [createdStageJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: stageJob.type, payload: stageJob.payload, idempotencyKey: `${stageJob.type.toLowerCase()}:${createdRun.version}:${shot.shotNumber}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
@@ -94,11 +95,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       console.error('[v0] pipeline transaction rolled back', error)
       throw error
     })
-    const workflowRuns = await Promise.all(jobs.map(async (job) => {
-      const run = await start(processGenerationJob, [job.id, session.user.id, job.type, job.payload])
-      return { jobId: job.id, runId: run.runId }
-    }))
-    return NextResponse.json({ output, queuedJobIds: jobs.map((job) => job.id), workflowRuns, workflow: { treatment: 'COMPLETED', scenes: 'RUNNING', visuals: 'RUNNING', voices: 'RUNNING', timeline: 'RUNNING' } })
+    const stageOrder: Record<string, number> = { SCENE_BREAKDOWN: 0, IMAGE_GENERATION: 1, AUDIO_GENERATION: 2, VIDEO_GENERATION: 3, TIMELINE: 4, VIDEO_EXPORT: 5 }
+    const orderedJobs = jobs.map((job) => ({ jobId: job.id, type: job.type, payload: job.payload })).sort((left, right) => {
+      const leftShot = Number(left.payload.shotNumber ?? -1)
+      const rightShot = Number(right.payload.shotNumber ?? -1)
+      if (left.type === 'SCENE_BREAKDOWN') return -1
+      if (right.type === 'SCENE_BREAKDOWN') return 1
+      return leftShot - rightShot || (stageOrder[left.type] ?? 99) - (stageOrder[right.type] ?? 99)
+    })
+    const run = await start(processGenerationPipeline, [orderedJobs, session.user.id])
+    return NextResponse.json({ output, queuedJobIds: jobs.map((job) => job.id), workflowRuns: [{ jobId: orderedJobs[0]?.jobId, runId: run.runId }], workflow: { treatment: 'COMPLETED', scenes: 'RUNNING', visuals: 'RUNNING', voices: 'RUNNING', timeline: 'RUNNING' } })
   }
 
   return NextResponse.json({ result: (result.output as { result: string }).result })
