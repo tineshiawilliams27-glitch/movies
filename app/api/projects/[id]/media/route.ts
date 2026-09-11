@@ -44,7 +44,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const [scene] = await db.select({ id: scenes.id }).from(scenes).where(and(eq(scenes.id, sceneId), eq(scenes.projectId, id), eq(scenes.userId, session.user.id))).limit(1)
     if (!scene) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   }
-  const pathname = `projects/${id}/uploads/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`
+  const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 200) || 'upload'
+  const pathname = `projects/${id}/uploads/${crypto.randomUUID()}-${safeFilename}`
   const blob = await put(pathname, file, { access: 'private', contentType: file.type, addRandomSuffix: false })
   const [asset] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, sceneId, kind, pathname: blob.pathname, contentType: file.type }).returning()
   if (!asset?.id) return NextResponse.json({ error: 'Media record could not be created.' }, { status: 500 })
