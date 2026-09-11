@@ -169,9 +169,9 @@ const protofaceVideoProvider: GenerationProvider = async ({ jobId, payload, onPr
   const referenceImageUrls = Array.isArray(payload.referenceImageUrls) ? payload.referenceImageUrls.filter((value): value is string => typeof value === 'string' && value.startsWith('http')) : []
   const created = await fetch(protofaceEndpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${protofaceApiKey}` }, body: JSON.stringify({ model: protofaceModel, prompt, duration: durationSeconds, duration_seconds: durationSeconds, ...(referenceImageUrls.length ? { image_url: referenceImageUrls[0], reference_images: referenceImageUrls } : {}), metadata: { jobId } }) })
   if (!created.ok) throw new Error(`Protoface video request failed with ${created.status}.`)
-  let operation = await created.json() as { id?: string; status?: string; output?: string | { url?: string }; output_url?: string; video_url?: string; error?: string; progress?: number }
+  let operation = await created.json() as { id?: string; status?: string; output?: string | { url?: string }; output_url?: string; video_url?: string; video?: { url?: string; content_type?: string; file_name?: string }; error?: string; progress?: number }
   const operationId = operation.id
-  if (!operationId && !(operation.output_url || operation.video_url || (typeof operation.output === 'string') || operation.output?.url)) throw new Error('Protoface returned no operation ID or video URL.')
+  if (!operationId && !(operation.output_url || operation.video_url || operation.video?.url || (typeof operation.output === 'string') || operation.output?.url)) throw new Error('Protoface returned no operation ID or video URL.')
   for (let attempt = 0; operationId && attempt < 90 && !['succeeded', 'completed', 'failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase()); attempt += 1) {
     await onProgress?.(Math.min(95, 10 + Math.round((attempt / 90) * 85)), operation.status === 'queued' ? 'Queued with Protoface' : 'Rendering video with Protoface')
     await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -180,13 +180,14 @@ const protofaceVideoProvider: GenerationProvider = async ({ jobId, payload, onPr
     operation = await response.json()
   }
   if (['failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase())) throw new Error(operation.error || `Protoface ended with ${operation.status}.`)
-  const outputUrl = operation.output_url || operation.video_url || (typeof operation.output === 'string' ? operation.output : operation.output?.url)
+  const outputUrl = operation.video?.url || operation.output_url || operation.video_url || (typeof operation.output === 'string' ? operation.output : operation.output?.url)
   if (!outputUrl) throw new Error('Protoface completed without a video URL.')
   const video = await fetch(outputUrl)
   if (!video.ok) throw new Error('Protoface returned an unreadable video.')
   await onProgress?.(96, 'Saving Protoface video')
-  const blob = await put(`film-clips/${jobId}.mp4`, await video.blob(), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
-  const assetId = await persistGeneratedMedia(payload, blob.pathname, 'video/mp4', 'VIDEO_CLIP', { provider: 'protoface', model: protofaceModel, operationId })
+  const contentType = operation.video?.content_type || 'video/mp4'
+  const blob = await put(`film-clips/${jobId}.mp4`, await video.blob(), { access: 'private', contentType, addRandomSuffix: false })
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, contentType, 'VIDEO_CLIP', { provider: 'protoface', model: protofaceModel, operationId, fileName: operation.video?.file_name })
   return { result: { provider: 'protoface', model: protofaceModel, operationId, assetPathname: blob.pathname, assetId, status: operation.status || 'completed' } }
 }
 
