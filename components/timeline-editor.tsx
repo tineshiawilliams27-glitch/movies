@@ -63,9 +63,14 @@ export function TimelineEditor({ projectId }: { projectId: string }) {
     setSaving(true)
     try {
       const response = await fetch(`/api/projects/${projectId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ metadata: { timeline: { zoom, cursor, playing: false } } }) })
-      setMessage(response.ok ? 'Timeline saved' : 'Timeline save failed')
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setMessage(data?.error || 'Timeline save failed')
+        return
+      }
+      setMessage('Timeline saved')
     } catch {
-      setMessage('Timeline save failed')
+      setMessage('Timeline save failed. Check your connection.')
     } finally {
       setSaving(false)
       window.setTimeout(() => setMessage(''), 2200)

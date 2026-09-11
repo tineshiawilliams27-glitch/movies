@@ -33,9 +33,14 @@ export function StoryboardEditor({ projectId }: { projectId: string }) {
     setSavingId(scene.id)
     try {
       const response = await fetch(`/api/projects/${projectId}/scenes/${scene.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(scene) })
-      setMessage(response.ok ? 'Storyboard saved' : 'Save failed')
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setMessage(data?.error || 'Save failed')
+        return
+      }
+      setMessage('Storyboard saved')
     } catch {
-      setMessage('Save failed')
+      setMessage('Save failed. Check your connection.')
     } finally {
       setSavingId(null)
       window.setTimeout(() => setMessage(''), 2200)
