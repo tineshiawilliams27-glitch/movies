@@ -38,6 +38,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!scene) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   }
   const [job] = await db.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, payload: parsed.data.payload }).returning()
+  if (!job?.id) return NextResponse.json({ error: 'Generation job could not be created.' }, { status: 500 })
   try {
     await enqueueGenerationJob(job.id, parsed.data.payload, parsed.data.type)
   } catch (error) {
