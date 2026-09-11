@@ -38,17 +38,30 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   }, [projectId, activeSceneId])
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}/film`).then(async (response) => {
-      if (response.ok) setFilm(await response.json())
-    }).catch(() => undefined)
-  }, [projectId])
+    let cancelled = false
 
-  useEffect(() => {
-    fetch(`/api/projects/${projectId}/scenes`).then(async (response) => {
-      const data = await response.json()
-      if (response.ok) { setScenes(data.scenes); setActiveId(data.scenes[0]?.id ?? null) }
-      setLoading(false)
-    }).catch(() => setLoading(false))
+    async function loadWorkspace() {
+      try {
+        const [filmResponse, scenesResponse] = await Promise.all([
+          fetch(`/api/projects/${projectId}/film`, { cache: 'no-store' }),
+          fetch(`/api/projects/${projectId}/scenes`, { cache: 'no-store' }),
+        ])
+        if (cancelled) return
+        if (filmResponse.ok) setFilm(await filmResponse.json())
+        if (scenesResponse.ok) {
+          const data = await scenesResponse.json()
+          setScenes(data.scenes ?? [])
+          setActiveId(data.scenes?.[0]?.id ?? null)
+        }
+      } catch {
+        if (!cancelled) setMessage('Unable to load workspace data')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    loadWorkspace()
+    return () => { cancelled = true }
   }, [projectId])
 
   function updateScene(field: keyof Scene, value: string) {
