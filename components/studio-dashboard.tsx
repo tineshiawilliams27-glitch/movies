@@ -47,39 +47,6 @@ type Project = {
   image: string
 }
 
-const initialProjects: Project[] = [
-  {
-    id: 'midnight-ledger',
-    title: 'The Midnight Ledger',
-    type: 'Suspense drama',
-    duration: '18:42',
-    scenes: 24,
-    updated: '12 min ago',
-    status: 'Rendering',
-    image: 'https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=900&q=85',
-  },
-  {
-    id: 'salt-and-signal',
-    title: 'Salt & Signal',
-    type: 'Documentary',
-    duration: '42:08',
-    scenes: 38,
-    updated: 'Yesterday',
-    status: 'Ready',
-    image: 'https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=900&q=85',
-  },
-  {
-    id: 'after-the-rain',
-    title: 'After the Rain',
-    type: 'Short story',
-    duration: '06:19',
-    scenes: 11,
-    updated: '3 days ago',
-    status: 'Draft',
-    image: 'https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=900&q=85',
-  },
-]
-
 const navItems = [
   { label: 'Overview', icon: LayoutDashboard, href: '/dashboard' },
   { label: 'Projects', icon: FolderKanban, href: '/dashboard' },
@@ -105,7 +72,7 @@ function StatusBadge({ status }: { status: Project['status'] }) {
 export function StudioDashboard({ persistedProjects = [], userName, userEmail }: { persistedProjects?: Project[]; userName?: string | null; userEmail?: string | null }) {
   const displayName = userName?.trim() || userEmail?.split('@')[0] || 'Account'
   const initials = displayName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
-  const [projects, setProjects] = useState(() => persistedProjects.length > 0 ? persistedProjects : initialProjects)
+  const [projects, setProjects] = useState(() => persistedProjects)
   const [query, setQuery] = useState('')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
@@ -200,6 +167,7 @@ export function StudioDashboard({ persistedProjects = [], userName, userEmail }:
 
             <div className="mt-12 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-serif text-2xl">Recent projects</h2><p className="mt-1 text-sm text-muted-foreground">Pick up where you left off.</p></div><div className="flex items-center gap-2"><label className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" className="w-32 bg-transparent outline-none placeholder:text-muted-foreground/60 sm:w-44" /></label><div className="relative"><button onClick={() => setOpenMenu(openMenu === 'sort' ? null : 'sort')} className="rounded-lg border border-border bg-card p-2 text-muted-foreground hover:bg-accent" aria-label="Open project actions" aria-expanded={openMenu === 'sort'}><MoreHorizontal size={18} /></button>{openMenu === 'sort' && <div className="absolute right-0 top-full z-30 mt-2 w-44 rounded-lg border border-border bg-card p-1 shadow-xl"><Link href="/templates" onClick={() => setOpenMenu(null)} className="block rounded-md px-3 py-2 text-sm hover:bg-accent">Browse templates</Link><button onClick={() => { setQuery(''); setOpenMenu(null) }} className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-accent">Clear search</button></div>}</div></div></div>
 
+            {filteredProjects.length === 0 && <div className="mt-5 rounded-xl border border-dashed border-border bg-card p-10 text-center"><FolderKanban size={22} className="mx-auto text-muted-foreground" /><h3 className="mt-3 font-medium">{query ? 'No projects found' : 'Your studio is ready'}</h3><p className="mx-auto mt-1 max-w-sm text-sm leading-6 text-muted-foreground">{query ? 'Try a different search term.' : 'Create your first production to begin shaping a story, storyboard, and final export.'}</p>{!query && <button onClick={() => { setCreateError(''); setShowCreate(true) }} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground"><Plus size={15} />Create video</button>}</div>}
             <div className="mt-5 grid gap-5 xl:grid-cols-3">{filteredProjects.map((project) => <article key={project.id} className="group overflow-hidden rounded-xl border border-border bg-card transition hover:border-primary/30 hover:shadow-xl hover:shadow-primary/5"><div className="relative aspect-[16/10] overflow-hidden"><Image src={project.image} alt="" fill sizes="(min-width: 1280px) 33vw, (min-width: 768px) 50vw, 100vw" unoptimized className="object-cover transition duration-500 group-hover:scale-105" /><div className="absolute inset-0 bg-gradient-to-t from-foreground/75 via-transparent to-transparent" /><div className="absolute bottom-3 left-3"><StatusBadge status={project.status} /></div><Link href={`/projects/${project.id}`} className="absolute right-3 top-3 flex size-9 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 backdrop-blur transition group-hover:opacity-100" aria-label={`Open ${project.title}`}><ArrowUpRight size={16} /></Link></div><div className="p-4"><div className="flex items-start justify-between gap-3"><div><h3 className="font-medium tracking-tight">{project.title}</h3><p className="mt-1 text-xs text-muted-foreground">{project.type}</p></div><div className="relative"><button onClick={() => setOpenMenu(openMenu === `project-${project.id}` ? null : `project-${project.id}`)} className="rounded-md p-1 text-muted-foreground hover:bg-accent" aria-label={`More actions for ${project.title}`} aria-expanded={openMenu === `project-${project.id}`}><MoreHorizontal size={16} /></button>{openMenu === `project-${project.id}` && <div className="absolute right-0 top-full z-30 mt-1 w-40 rounded-lg border border-border bg-card p-1 shadow-xl"><button onClick={() => { duplicateProject(project); setOpenMenu(null) }} className="block w-full rounded-md px-3 py-2 text-left text-xs hover:bg-accent">Duplicate project</button><button onClick={() => { deleteProject(project.id); setOpenMenu(null) }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-destructive hover:bg-destructive/10">Delete project</button></div>}</div></div><div className="mt-5 flex items-center justify-between border-t border-border pt-3 text-xs text-muted-foreground"><span>{project.duration} · {project.scenes} scenes</span><span>{project.updated}</span></div><div className="mt-4 flex items-center gap-2"><Link href={`/projects/${project.id}`} className="flex-1 rounded-lg bg-primary px-3 py-2 text-center text-xs font-medium text-primary-foreground hover:opacity-90">Continue editing</Link><button onClick={() => duplicateProject(project)} className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-accent" aria-label={`Duplicate ${project.title}`}><Copy size={15} /></button><button onClick={() => deleteProject(project.id)} className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label={`Delete ${project.title}`}><Trash2 size={15} /></button></div></div></article>)}</div>
 
             <section className="mt-12 rounded-2xl border border-border bg-card p-5 md:p-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="flex items-center gap-2"><BookOpen size={17} className="text-accent" /><h2 className="font-serif text-xl">Start with a blueprint</h2></div><p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">Explore production-ready templates for stories, explainers, documentaries, and social cuts.</p></div><Link href="/templates" className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-accent">Browse templates <ArrowUpRight size={15} /></Link></div></section>
