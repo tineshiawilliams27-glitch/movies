@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { upload as blobUpload } from '@vercel/blob/client'
 import { Check, FileAudio, FileImage, FileVideo, Loader2, Upload } from 'lucide-react'
 import { WorkspaceNavigation } from '@/components/workspace-navigation'
 
@@ -31,14 +32,20 @@ export function MediaLibrary({ projectId }: { projectId: string }) {
 
   async function upload(file: File) {
     setUploading(true)
-    const formData = new FormData()
-    formData.set('file', file)
-    formData.set('kind', file.type.startsWith('image/') ? 'IMAGE' : file.type.startsWith('audio/') ? 'AUDIO' : 'VIDEO')
+    const kind = file.type.startsWith('image/') ? 'IMAGE' : file.type.startsWith('audio/') ? 'AUDIO' : 'VIDEO'
     try {
-      const response = await fetch(`/api/projects/${projectId}/media`, { method: 'POST', body: formData })
+      const blob = await blobUpload(`projects/${projectId}/uploads/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 200)}`, file, {
+        access: 'private',
+        handleUploadUrl: `/api/projects/${projectId}/media/upload`,
+      })
+      const response = await fetch(`/api/projects/${projectId}/media`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pathname: blob.pathname, contentType: file.type, size: file.size, name: file.name, kind }),
+      })
       if (!response.ok) {
         const data = await response.json().catch(() => null) as { error?: string } | null
-        setMessage(data?.error || 'Upload failed')
+        setMessage(data?.error || 'Upload metadata failed')
         return
       }
       setMessage('Asset uploaded')
