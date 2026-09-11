@@ -42,7 +42,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!scene) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   }
   const { job, created } = await db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), parsed.data.idempotencyKey ? eq(generationJobs.idempotencyKey, parsed.data.idempotencyKey) : sql`false`)).limit(1)
+    const [existing] = await tx.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id), parsed.data.idempotencyKey ? eq(generationJobs.idempotencyKey, parsed.data.idempotencyKey) : sql`false`)).limit(1)
     if (existing) return { job: existing, created: false }
     const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, idempotencyKey: parsed.data.idempotencyKey, payload: parsed.data.payload }).returning()
     if (!createdJob) throw new Error('Generation job could not be created.')

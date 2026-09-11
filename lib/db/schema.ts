@@ -167,7 +167,7 @@ export const filmBibles = pgTable('film_bibles', {
 
 export const filmCharacters = pgTable('film_characters', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
   version: integer('version').notNull().default(1),
@@ -184,7 +184,7 @@ export const filmCharacters = pgTable('film_characters', {
 
 export const storyboardShots = pgTable('storyboard_shots', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
   version: integer('version').notNull().default(1),

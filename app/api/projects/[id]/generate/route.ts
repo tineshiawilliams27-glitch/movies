@@ -46,7 +46,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (parsed.data.kind === 'pipeline') {
     const output = result.output as z.infer<typeof pipelineSchema>
     if (!output || !Array.isArray(output.characters) || !Array.isArray(output.shots)) return NextResponse.json({ error: 'Generation returned an incomplete pipeline.' }, { status: 502 })
-    const [latestRun] = await db.select({ version: generationRuns.version }).from(generationRuns).where(eq(generationRuns.projectId, id)).orderBy(desc(generationRuns.version)).limit(1)
+    const [latestRun] = await db.select({ version: generationRuns.version }).from(generationRuns).where(and(eq(generationRuns.projectId, id), eq(generationRuns.userId, session.user.id))).orderBy(desc(generationRuns.version)).limit(1)
     const [run] = await db.insert(generationRuns).values({ userId: session.user.id, projectId: id, version: (latestRun?.version ?? 0) + 1, prompt: parsed.data.prompt }).returning()
     if (!run) return NextResponse.json({ error: 'Generation run could not be created.' }, { status: 500 })
     await db.insert(filmBibles).values({ userId: session.user.id, projectId: id, generationRunId: run.id, version: run.version, logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible }).onConflictDoUpdate({ target: filmBibles.projectId, set: { logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible, updatedAt: new Date() } })
@@ -56,7 +56,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const idempotencyKey = `video:${shot.shotNumber}:${shot.framePrompt}`
       const payload = { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood }
       const { job, created } = await db.transaction(async (tx) => {
-        const [existing] = await tx.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.idempotencyKey, idempotencyKey))).limit(1)
+        const [existing] = await tx.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id), eq(generationJobs.idempotencyKey, idempotencyKey))).limit(1)
         if (existing) return { job: existing, created: false }
         const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: run.id, type: 'VIDEO_GENERATION', payload, idempotencyKey }).returning()
         if (!createdJob) return { job: null, created: false }
