@@ -42,5 +42,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const pathname = `projects/${id}/uploads/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`
   const blob = await put(pathname, file, { access: 'private', contentType: file.type, addRandomSuffix: false })
   const [asset] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, sceneId, kind, pathname: blob.pathname, contentType: file.type }).returning()
+  if (!asset?.id) return NextResponse.json({ error: 'Media record could not be created.' }, { status: 500 })
   return NextResponse.json({ asset }, { status: 201 })
 }
