@@ -5,7 +5,8 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { generationJobs, generationOutbox, projects, scenes } from '@/lib/db/schema'
-import { enqueueGenerationJob } from '@/lib/queue'
+import { start } from 'workflow/api'
+import { processGenerationJob } from '@/workflows/generation'
 
 const createJobSchema = z.object({
   type: z.enum(['STORY_GENERATION', 'IMAGE_GENERATION', 'VIDEO_GENERATION', 'AUDIO_GENERATION', 'VOICE_GENERATION', 'VIDEO_RENDER', 'VIDEO_EXPORT']),
@@ -51,12 +52,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   })
   if (!job?.id) return NextResponse.json({ error: 'Generation job could not be created.' }, { status: 500 })
   if (!created) return NextResponse.json({ job, deduplicated: true }, { status: 200 })
-  try {
-    await enqueueGenerationJob(job.id, parsed.data.payload, parsed.data.type)
-  } catch (error) {
-    console.error('[v0] queue enqueue failed', error)
-    const [failedJob] = await db.update(generationJobs).set({ status: 'FAILED', stage: 'Queue unavailable', error: 'The generation queue could not accept this job.', updatedAt: new Date() }).where(and(eq(generationJobs.id, job.id), eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id))).returning()
-    return NextResponse.json({ job: failedJob }, { status: 503 })
-  }
-  return NextResponse.json({ job }, { status: 201 })
+  const run = await start(processGenerationJob, [job.id, session.user.id, job.type, job.payload as Record<string, unknown>])
+  return NextResponse.json({ job, workflowRunId: run.runId }, { status: 201 })
 }

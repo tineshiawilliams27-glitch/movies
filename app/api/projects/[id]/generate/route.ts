@@ -6,7 +6,8 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { filmBibles, filmCharacters, generationJobs, generationOutbox, generationRuns, projects, storyboardShots, timelineItems } from '@/lib/db/schema'
-import { enqueueGenerationJob } from '@/lib/queue'
+import { start } from 'workflow/api'
+import { processGenerationJob } from '@/workflows/generation'
 
 const requestSchema = z.object({
   kind: z.enum(['story', 'scene', 'character', 'visual', 'audio', 'pipeline']),
@@ -93,8 +94,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       console.error('[v0] pipeline transaction rolled back', error)
       throw error
     })
-    await Promise.all(jobs.map((job) => enqueueGenerationJob(job.id, job.payload, job.type)))
-    return NextResponse.json({ output, queuedJobIds: jobs.map((job) => job.id), workflow: { treatment: 'COMPLETED', scenes: 'QUEUED', visuals: 'QUEUED', voices: 'QUEUED', timeline: 'QUEUED' } })
+    const workflowRuns = await Promise.all(jobs.map(async (job) => {
+      const run = await start(processGenerationJob, [job.id, session.user.id, job.type, job.payload])
+      return { jobId: job.id, runId: run.runId }
+    }))
+    return NextResponse.json({ output, queuedJobIds: jobs.map((job) => job.id), workflowRuns, workflow: { treatment: 'COMPLETED', scenes: 'RUNNING', visuals: 'RUNNING', voices: 'RUNNING', timeline: 'RUNNING' } })
   }
 
   return NextResponse.json({ result: (result.output as { result: string }).result })
