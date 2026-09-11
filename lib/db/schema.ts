@@ -150,7 +150,7 @@ export const generationRuns = pgTable('generation_runs', {
 export const filmBibles = pgTable('film_bibles', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
-  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }).unique(),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
   version: integer('version').notNull().default(1),
   logline: text('logline').notNull().default(''),
@@ -180,7 +180,7 @@ export const filmCharacters = pgTable('film_characters', {
   referenceAssetId: uuid('referenceAssetId'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectCharacterKeyUnique: uniqueIndex('film_characters_project_key_unique').on(table.projectId, table.stableKey) }))
+}, (table) => ({ projectCharacterKeyVersionUnique: uniqueIndex('film_characters_project_key_version_unique').on(table.projectId, table.stableKey, table.version) }))
 
 export const storyboardShots = pgTable('storyboard_shots', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -206,7 +206,7 @@ export const storyboardShots = pgTable('storyboard_shots', {
   status: text('status').notNull().default('PLANNED'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectShotUnique: uniqueIndex('storyboard_shots_project_number_unique').on(table.projectId, table.shotNumber) }))
+}, (table) => ({ projectShotVersionUnique: uniqueIndex('storyboard_shots_project_number_version_unique').on(table.projectId, table.shotNumber, table.version) }))
 
 export const timelineItems = pgTable('timeline_items', {
   id: uuid('id').defaultRandom().primaryKey(),
