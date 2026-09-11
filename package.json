@@ -16,7 +16,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:check": "drizzle-kit check",
-    "db:verify": "tsx scripts/verify-db.ts"
+    "db:verify": "tsx scripts/verify-db.ts",
+    "worker": "tsx worker/index.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.100",

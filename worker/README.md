@@ -1,14 +1,21 @@
-# Lumen Forge worker
+# Lumen Forge rendering worker
 
-The worker is intentionally separate from the Vercel application. It is the home for long-running video, audio, and FFmpeg jobs.
+The worker is a separate Node service for long-running video, audio, and FFmpeg jobs. It polls the Redis-compatible queue, fetches job metadata from the Next.js application, runs the existing provider pipeline, and reports progress through the protected internal API.
 
-## Contract
+## Run locally
 
-- Listen for queued job IDs from the Redis-compatible queue.
-- Fetch job metadata from the application API.
-- Generate scene-sized assets with the configured provider adapter.
-- Upload media to private object storage.
-- Report `QUEUED`, `PROCESSING`, `COMPLETED`, `FAILED`, or `CANCELLED` state and real progress back to the application.
-- Render final exports with FFmpeg only after all referenced media assets are available.
+From the repository root:
 
-The current `index.ts` provides a protected health endpoint as a deployment scaffold. Add the GPU runtime and FFmpeg process runner on the worker host, not in Vercel functions.
+```bash
+pnpm exec tsx worker/index.ts
+```
+
+Required environment variables:
+
+- `KV_REST_API_URL`
+- `KV_REST_API_TOKEN`
+- `WORKER_API_URL`
+- `WORKER_API_SECRET`
+- provider credentials used by the selected adapters
+
+Health is available at `GET /health` on `PORT` (default `8080`). Set `WORKER_QUEUE_KEY` to override the default `generation:pending` list.

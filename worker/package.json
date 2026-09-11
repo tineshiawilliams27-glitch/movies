@@ -1,0 +1,8 @@
+{
+  "name": "lumen-forge-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts"
+  }
+}

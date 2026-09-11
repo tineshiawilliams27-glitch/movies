@@ -6,8 +6,7 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { filmBibles, filmCharacters, generationJobs, generationOutbox, generationRuns, projects, storyboardShots, timelineItems } from '@/lib/db/schema'
-import { start } from 'workflow/api'
-import { processGenerationPipeline } from '@/workflows/generation'
+import { enqueueJob } from '@/worker/queue'
 
 export const maxDuration = 300
 
@@ -115,8 +114,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (leftIsFinalStage && rightIsFinalStage) return (stageOrder[left.type] ?? 99) - (stageOrder[right.type] ?? 99)
       return leftShot - rightShot || (stageOrder[left.type] ?? 99) - (stageOrder[right.type] ?? 99)
     })
-    const run = await start(processGenerationPipeline, [orderedJobs, session.user.id])
-    return NextResponse.json({ output, queuedJobIds: jobs.map((job) => job.id), workflowRuns: [{ jobId: orderedJobs[0]?.jobId, runId: run.runId }], workflow: { treatment: 'COMPLETED', scenes: 'RUNNING', visuals: 'RUNNING', voices: 'RUNNING', timeline: 'RUNNING' } })
+    await Promise.all(jobs.map((job) => enqueueJob(job.id)))
+    return NextResponse.json({ output, queuedJobIds: jobs.map((job) => job.id), workflowRuns: [], workflow: { treatment: 'COMPLETED', scenes: 'RUNNING', visuals: 'RUNNING', voices: 'RUNNING', timeline: 'RUNNING' } })
   }
 
   return NextResponse.json({ result: (result.output as { result: string }).result })
