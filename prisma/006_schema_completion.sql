@@ -1,6 +1,8 @@
 ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS "sourceId" uuid;
 ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;
 ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS "generationRunId" uuid REFERENCES generation_runs(id) ON DELETE SET NULL;
+ALTER TABLE film_bibles DROP CONSTRAINT IF EXISTS film_bibles_user_id_fkey;
+ALTER TABLE film_bibles ADD CONSTRAINT film_bibles_user_id_fkey FOREIGN KEY ("userId") REFERENCES "user"(id) ON DELETE CASCADE NOT VALID;
 
 CREATE INDEX IF NOT EXISTS media_assets_source_version_idx ON media_assets("sourceId", version);
 CREATE INDEX IF NOT EXISTS generation_jobs_generation_run_idx ON generation_jobs("generationRunId");

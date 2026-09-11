@@ -149,7 +149,7 @@ export const generationRuns = pgTable('generation_runs', {
 
 export const filmBibles = pgTable('film_bibles', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }).unique(),
   generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
   version: integer('version').notNull().default(1),
