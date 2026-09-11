@@ -20,8 +20,9 @@ export function ExportSuite({ projectId }: { projectId: string }) {
         const response = await fetch(`/api/projects/${projectId}/jobs`, { cache: 'no-store' })
         if (!response.ok) return
         const data = await response.json()
-        const job = data.jobs?.find((item: { type: string }) => item.type === 'VIDEO_EXPORT')
-        if (active && job) setLatestJob(job)
+        const jobs = Array.isArray(data.jobs) ? data.jobs : []
+        const job = jobs.find((item: { type?: string }) => item.type === 'VIDEO_EXPORT')
+        if (active && job?.id) setLatestJob(job)
       } catch {
         // Polling is best effort; the next interval can recover from a transient network failure.
       }

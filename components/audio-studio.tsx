@@ -39,7 +39,9 @@ export function AudioStudio({ projectId }: { projectId: string }) {
     setError('')
     try {
       const response = await fetch(`/api/projects/${projectId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ metadata: { audioTracks: tracks } }) })
-      if (!response.ok) { const data = await response.json().catch(() => null); setError(data?.error || 'Unable to save mix'); return }
+      const data = await response.json().catch(() => null) as { error?: string; project?: { id?: string } } | null
+      if (!response.ok) { setError(data?.error || 'Unable to save mix'); return }
+      if (!data?.project?.id) { setError('Mix was saved without a valid project record. Please try again.'); return }
       setSaved(true); window.setTimeout(() => setSaved(false), 2200)
     } catch { setError('Unable to save mix. Check your connection and try again.') }
   }
