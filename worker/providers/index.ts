@@ -38,7 +38,7 @@ async function replicateVideoProvider({ jobId, payload }: ProviderContext): Prom
   const clip = await fetch(outputUrl)
   if (!clip.ok) throw new Error('Replicate returned an unreadable clip.')
   const blob = await put(`film-clips/${jobId}.mp4`, await clip.blob(), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
-  return { result: { provider: 'replicate', predictionId: prediction.id, assetUrl: blob.url, status: prediction.status } }
+  return { result: { provider: 'replicate', predictionId: prediction.id, assetPathname: blob.pathname, status: prediction.status } }
 }
 
 export const demoProvider: GenerationProvider = async ({ jobId }) => ({ result: { mode: 'demo', jobId, outputs: [] } })

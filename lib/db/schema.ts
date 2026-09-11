@@ -115,6 +115,7 @@ export const generationJobs = pgTable('generation_jobs', {
   attempts: integer('attempts').notNull().default(0),
   error: text('error'),
   payload: jsonb('payload').notNull().default({}),
+  idempotencyKey: text('idempotencyKey'),
   result: jsonb('result'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
