@@ -26,8 +26,9 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
         const response = await fetch(`/api/projects/${projectId}/jobs?sceneId=${activeSceneId}`, { cache: 'no-store' })
         if (!response.ok || cancelled) return
         const data = await response.json()
-        const nextJob = data.jobs?.find((job: { status: string }) => job.status === 'QUEUED' || job.status === 'PROCESSING') ?? data.jobs?.[0] ?? null
-        setActiveJob(nextJob ? { id: nextJob.id, status: nextJob.status, progress: nextJob.progress, stage: nextJob.stage } : null)
+        const jobs = Array.isArray(data.jobs) ? data.jobs : []
+        const nextJob = jobs.find((job: { status?: string }) => job.status === 'QUEUED' || job.status === 'PROCESSING') ?? jobs[0] ?? null
+        setActiveJob(nextJob?.id ? { id: nextJob.id, status: nextJob.status || 'UNKNOWN', progress: Number(nextJob.progress) || 0, stage: nextJob.stage || 'Processing' } : null)
       } catch {
         // Polling is best effort; the next interval can recover from a transient network failure.
       }
@@ -47,11 +48,22 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
           fetch(`/api/projects/${projectId}/scenes`, { cache: 'no-store' }),
         ])
         if (cancelled) return
-        if (filmResponse.ok) setFilm(await filmResponse.json())
+        if (filmResponse.ok) {
+          const data = await filmResponse.json()
+          if (data?.bible && Array.isArray(data.characters) && Array.isArray(data.shots) && Array.isArray(data.timeline)) setFilm(data)
+          else setMessage('Workspace film data is incomplete.')
+        } else {
+          const data = await filmResponse.json().catch(() => null) as { error?: string } | null
+          setMessage(data?.error || 'Unable to load film data.')
+        }
         if (scenesResponse.ok) {
           const data = await scenesResponse.json()
-          setScenes(data.scenes ?? [])
-          setActiveId(data.scenes?.[0]?.id ?? null)
+          const nextScenes = Array.isArray(data.scenes) ? data.scenes : []
+          setScenes(nextScenes)
+          setActiveId(nextScenes[0]?.id ?? null)
+        } else {
+          const data = await scenesResponse.json().catch(() => null) as { error?: string } | null
+          setMessage(data?.error || 'Unable to load scenes.')
         }
       } catch {
         if (!cancelled) setMessage('Unable to load workspace data. Check your connection.')
@@ -73,7 +85,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     try {
       const response = await fetch(`/api/projects/${projectId}/scenes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: `Scene ${scenes.length + 1}`, description: '', dialogue: '', location: 'New location', timeOfDay: 'Day', durationSeconds: 10 }) })
       const data = await response.json()
-      if (response.ok) { setScenes((current) => [...current, data.scene]); setActiveId(data.scene.id); setMessage('Scene added') }
+      if (response.ok && data.scene?.id) { setScenes((current) => [...current, data.scene]); setActiveId(data.scene.id); setMessage('Scene added') }
       else setMessage(data.error || 'Scene could not be added')
     } catch { setMessage('Scene could not be added. Check your connection.') }
   }
