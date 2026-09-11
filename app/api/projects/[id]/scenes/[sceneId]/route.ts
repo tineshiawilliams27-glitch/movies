@@ -12,7 +12,7 @@ const updateSchema = z.object({
   dialogue: z.string().max(20000).optional(),
   location: z.string().max(200).optional(),
   timeOfDay: z.string().max(120).optional(),
-  durationSeconds: z.coerce.number().positive().optional(),
+  durationSeconds: z.coerce.number().positive().max(86400).optional(),
 }).refine((data) => Object.keys(data).length > 0, 'At least one scene field is required.')
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string; sceneId: string }> }) {

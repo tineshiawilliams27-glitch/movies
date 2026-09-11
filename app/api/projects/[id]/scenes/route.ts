@@ -12,7 +12,7 @@ const sceneSchema = z.object({
   dialogue: z.string().max(20000).default(''),
   location: z.string().max(200).default(''),
   timeOfDay: z.string().max(120).default(''),
-  durationSeconds: z.number().positive().default(10),
+  durationSeconds: z.number().positive().max(86400).default(10),
 })
 
 async function getUserId() {
