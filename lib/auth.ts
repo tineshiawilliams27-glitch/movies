@@ -10,6 +10,16 @@ export const auth = betterAuth({
   database: pool,
   baseURL,
   emailAndPassword: { enabled: true, autoSignIn: true },
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID ?? '',
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+    },
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID ?? '',
+      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
+    },
+  },
   trustedOrigins: [
     ...(process.env.NODE_ENV === 'development' ? [
       'http://localhost:3000',

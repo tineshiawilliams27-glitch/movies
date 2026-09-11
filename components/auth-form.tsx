@@ -43,6 +43,22 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     }
   }
 
+  async function handleSocialSignIn(provider: 'google' | 'github') {
+    if (pending) return
+    setError('')
+    setPending(true)
+    try {
+      const redirectTarget = new URLSearchParams(window.location.search).get('redirect') || '/dashboard'
+      const safeRedirect = redirectTarget.startsWith('/') && !redirectTarget.startsWith('//') ? redirectTarget : '/dashboard'
+      const result = await signIn.social({ provider, callbackURL: safeRedirect })
+      if (result.error) setError('We could not start social sign-in. Please try again.')
+    } catch {
+      setError('The authentication service is unavailable right now. Please try again.')
+    } finally {
+      setPending(false)
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
@@ -103,7 +119,13 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
             </form>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
+          <>
+          <div className="mt-8 flex flex-col gap-3">
+            <button type="button" onClick={() => handleSocialSignIn('google')} disabled={pending} className="rounded-xl border border-border bg-background px-4 py-3 font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60">Continue with Google</button>
+            <button type="button" onClick={() => handleSocialSignIn('github')} disabled={pending} className="rounded-xl border border-border bg-background px-4 py-3 font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60">Continue with GitHub</button>
+            <div className="flex items-center gap-3 py-2 text-xs uppercase tracking-[0.18em] text-muted-foreground"><span className="h-px flex-1 bg-border" /><span>or</span><span className="h-px flex-1 bg-border" /></div>
+          </div>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             {isSignUp && <label htmlFor="name" className="text-sm font-medium">Name<input id="name" aria-label="Name" autoComplete="name" value={name} onChange={(e) => { setName(e.target.value); setError('') }} placeholder="Your name" maxLength={100} required className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" /></label>}
             <label htmlFor="auth-email" className="text-sm font-medium">Email address<input id="auth-email" aria-label="Email address" aria-invalid={Boolean(error)} aria-describedby={error ? 'auth-error email-help' : 'email-help'} type="email" autoComplete="email" value={email} onChange={(e) => { setEmail(e.target.value); setError('') }} placeholder="you@example.com" required className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-primary" /><span id="email-help" className="sr-only">Enter a valid email address.</span></label>
             <label htmlFor="password" className="text-sm font-medium">Password<input id="password" aria-label="Password" aria-invalid={Boolean(error)} aria-describedby={isSignUp ? 'password-help auth-error' : error ? 'auth-error' : undefined} type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} value={password} onChange={(e) => { setPassword(e.target.value); setError('') }} placeholder="Password" minLength={8} required className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-primary" />{isSignUp && <span id="password-help" className="mt-1 block text-xs text-muted-foreground">Use 8+ characters with an uppercase letter and a number.</span>}</label>
@@ -112,6 +134,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
             {!isSignUp && <button type="button" onClick={() => { setShowRecovery(true); setError('') }} className="self-end rounded-sm text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Forgot password?</button>}
             <button disabled={pending} className="rounded-xl bg-primary px-4 py-3 font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-60">{pending ? 'Working…' : isSignUp ? 'Create account' : 'Sign in'}</button>
           </form>
+          </>
         )}
         <p className="mt-6 text-sm text-muted-foreground">{isSignUp ? 'Already have an account?' : 'Need an account?'}{' '}<Link className="text-primary hover:underline" href={isSignUp ? '/login' : '/signup'}>{isSignUp ? 'Sign in' : 'Sign up'}</Link></p>
       </div>
