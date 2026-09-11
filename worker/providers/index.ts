@@ -22,6 +22,9 @@ const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
 const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()
 const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
 const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
+const elevenLabsApiKey = (process.env.ELEVENLABS_API_KEY || process.env.API_KEY || '').trim()
+const elevenLabsVoiceId = (process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM').trim()
+const elevenLabsModelId = (process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2').trim()
 
 const providerConfig = {
   VIDEO_GENERATION: videoProvider,
@@ -164,6 +167,21 @@ const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) =>
 }
 
 const imageGenerationProvider: GenerationProvider = async (context) => imageEndpoint ? httpMediaProvider(context, imageEndpoint, 'IMAGE') : unavailableProvider('IMAGE_GENERATION (IMAGE_PROVIDER_URL)')(context)
+const elevenLabsAudioProvider: GenerationProvider = async ({ jobId, payload }) => {
+  if (!elevenLabsApiKey) return { status: 'NOT_CONFIGURED', result: { code: 'ELEVENLABS_NOT_CONFIGURED', message: 'Set ELEVENLABS_API_KEY to enable realistic voice generation.' } }
+  const text = String(payload.text ?? payload.dialogue ?? payload.prompt ?? '').trim()
+  if (!text) throw new Error('Voice generation requires dialogue text.')
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}`, {
+    method: 'POST',
+    headers: { 'xi-api-key': elevenLabsApiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+    body: JSON.stringify({ text, model_id: elevenLabsModelId, voice_settings: { stability: 0.48, similarity_boost: 0.78, style: 0.2, use_speaker_boost: true } }),
+  })
+  if (!response.ok) throw new Error(`ElevenLabs voice generation failed with ${response.status}.`)
+  const blob = await put(`voice-over/${jobId}.mp3`, await response.blob(), { access: 'private', contentType: 'audio/mpeg', addRandomSuffix: false })
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, 'audio/mpeg', 'AUDIO_GENERATED', { provider: 'elevenlabs', voiceId: elevenLabsVoiceId, modelId: elevenLabsModelId, text })
+  return { result: { provider: 'elevenlabs', voiceId: elevenLabsVoiceId, modelId: elevenLabsModelId, assetPathname: blob.pathname, assetId, kind: 'AUDIO' } }
+}
+
 const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('AUDIO_GENERATION (AUDIO_PROVIDER_URL)')(context)
 const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
   if (!ffmpegPath) throw new Error('FFmpeg binary is unavailable in this runtime.')
@@ -209,7 +227,7 @@ export function providerFor(type: string): GenerationProvider {
   if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return imageGenerationProvider
   if (type === 'IMAGE_GENERATION' && configured === 'replicate') return replicateImageProvider
   if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http' && audioEndpoint) return audioGenerationProvider
-  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return unavailableProvider('AUDIO_GENERATION (elevenlabs adapter)')
+  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return elevenLabsAudioProvider
   if ((type === 'TIMELINE' || type === 'VIDEO_EXPORT') && configured === 'local') return videoExportProvider
   return unavailableProvider(`${type} (${configured || 'unknown'})`)
 }
