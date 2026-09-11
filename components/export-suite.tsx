@@ -40,21 +40,27 @@ export function ExportSuite({ projectId }: { projectId: string }) {
     link.remove()
   }
 
-  const exportInProgress = status === 'queued' || latestJob?.status === 'QUEUED' || latestJob?.status === 'RUNNING'
+  const exportInProgress = status === 'queued' || latestJob?.status === 'QUEUED' || latestJob?.status === 'PROCESSING' || latestJob?.status === 'RUNNING'
 
   async function startExport() {
     if (exportInProgress) return
     setStatus('queued')
     setError('')
-    const response = await fetch(`/api/projects/${projectId}/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'VIDEO_EXPORT', payload: settings }) })
-    if (!response.ok) {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'VIDEO_EXPORT', payload: settings }) })
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setStatus('error')
+        setError(data?.error || 'The export could not be queued. Review the project and try again.')
+        return
+      }
+      const data = await response.json()
+      if (data.job) setLatestJob(data.job)
+      window.setTimeout(() => setStatus('idle'), 2400)
+    } catch {
       setStatus('error')
-      setError('The export could not be queued. Review the project and try again.')
-      return
+      setError('The export could not be queued. Check your connection and try again.')
     }
-    const data = await response.json()
-    if (data.job) setLatestJob(data.job)
-    window.setTimeout(() => setStatus('idle'), 2400)
   }
 
   async function retryExport() {

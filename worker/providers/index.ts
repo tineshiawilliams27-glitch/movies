@@ -41,8 +41,6 @@ async function replicateVideoProvider({ jobId, payload }: ProviderContext): Prom
   return { result: { provider: 'replicate', predictionId: prediction.id, assetPathname: blob.pathname, status: prediction.status } }
 }
 
-export const demoProvider: GenerationProvider = async ({ jobId }) => ({ result: { mode: 'demo', jobId, outputs: [] } })
-
 export function unavailableProvider(name: string): GenerationProvider {
   return async () => { throw new Error(`${name} provider is not configured.`) }
 }

@@ -45,6 +45,7 @@ export function CreateProject() {
       const data = await response.json() as { project?: { id?: string } }
       if (!data.project?.id) {
         setStatus('error')
+        setErrorMessage('Project was created without an ID. Please try again.')
         return
       }
 

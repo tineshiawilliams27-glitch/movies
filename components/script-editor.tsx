@@ -13,7 +13,21 @@ export function ScriptEditor({ projectId }: { projectId: string }) {
   const [saveError, setSaveError] = useState('')
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}`).then((response) => response.json()).then((data) => setProject(data.project ?? null)).finally(() => setLoading(false))
+    let cancelled = false
+    async function loadProject() {
+      try {
+        const response = await fetch(`/api/projects/${projectId}`, { cache: 'no-store' })
+        const data = await response.json()
+        if (!cancelled) setProject(response.ok ? data.project ?? null : null)
+        if (!cancelled && !response.ok) setSaveError(data.error || 'Unable to load project.')
+      } catch {
+        if (!cancelled) setSaveError('Unable to load project. Check your connection.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadProject()
+    return () => { cancelled = true }
   }, [projectId])
 
   async function save() {
