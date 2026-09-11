@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
+import { authClient } from '@/lib/auth-client'
 import Link from 'next/link'
 import {
   Activity,
@@ -70,6 +72,7 @@ function StatusBadge({ status }: { status: Project['status'] }) {
 }
 
 export function StudioDashboard({ persistedProjects = [], userName, userEmail }: { persistedProjects?: Project[]; userName?: string | null; userEmail?: string | null }) {
+  const router = useRouter()
   const displayName = userName?.trim() || userEmail?.split('@')[0] || 'Account'
   const initials = displayName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
   const [projects, setProjects] = useState(() => persistedProjects)
@@ -81,6 +84,10 @@ export function StudioDashboard({ persistedProjects = [], userName, userEmail }:
   const [createError, setCreateError] = useState('')
   const [openMenu, setOpenMenu] = useState<'workspace' | 'notifications' | 'account' | 'sort' | string | null>(null)
   const filteredProjects = useMemo(() => projects.filter((project) => `${project.title} ${project.type}`.toLowerCase().includes(query.toLowerCase())), [projects, query])
+
+  async function handleLogout() {
+    await authClient.signOut({ fetchOptions: { onSuccess: () => { router.push('/login') } } })
+  }
 
   async function createProject() {
     setCreateError('')
@@ -181,7 +188,7 @@ export function StudioDashboard({ persistedProjects = [], userName, userEmail }:
           <header className="flex h-16 items-center justify-between border-b border-border px-5 md:px-8">
             <button className="rounded-lg p-2 text-muted-foreground hover:bg-accent lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={19} /></button>
             <div className="hidden items-center gap-2 text-sm text-muted-foreground md:flex"><span>Studio</span><span>/</span><span className="text-foreground">Overview</span></div>
-            <div className="flex items-center gap-2"><div className="relative"><button onClick={() => setOpenMenu(openMenu === 'notifications' ? null : 'notifications')} className="relative rounded-lg p-2 text-muted-foreground hover:bg-accent" aria-label="Notifications" aria-expanded={openMenu === 'notifications'}><Bell size={18} /><span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-accent" /></button>{openMenu === 'notifications' && <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-border bg-card p-4 shadow-xl"><p className="text-sm font-medium">Notifications</p><p className="mt-1 text-xs text-muted-foreground">You&apos;re all caught up.</p></div>}</div><div className="relative ml-2 border-l border-border pl-3"><button onClick={() => setOpenMenu(openMenu === 'account' ? null : 'account')} className="flex items-center gap-2 rounded-lg p-1 hover:bg-accent" aria-label="Open account menu" aria-expanded={openMenu === 'account'}><span className="flex size-8 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">{initials}</span><span className="hidden text-sm font-medium sm:block">{displayName}</span><ChevronDown size={14} className="text-muted-foreground" /></button>{openMenu === 'account' && <div className="absolute right-0 top-full z-50 mt-2 w-48 rounded-lg border border-border bg-card p-1 shadow-xl"><Link href="/settings" onClick={() => setOpenMenu(null)} className="block rounded-md px-3 py-2 text-sm hover:bg-accent">Settings</Link><Link href="/dashboard" onClick={() => setOpenMenu(null)} className="block rounded-md px-3 py-2 text-sm hover:bg-accent">Back to dashboard</Link></div>}</div></div>
+            <div className="flex items-center gap-2"><div className="relative"><button onClick={() => setOpenMenu(openMenu === 'notifications' ? null : 'notifications')} className="relative rounded-lg p-2 text-muted-foreground hover:bg-accent" aria-label="Notifications" aria-expanded={openMenu === 'notifications'}><Bell size={18} /><span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-accent" /></button>{openMenu === 'notifications' && <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-border bg-card p-4 shadow-xl"><p className="text-sm font-medium">Notifications</p><p className="mt-1 text-xs text-muted-foreground">You&apos;re all caught up.</p></div>}</div><div className="relative ml-2 border-l border-border pl-3"><button onClick={() => setOpenMenu(openMenu === 'account' ? null : 'account')} className="flex items-center gap-2 rounded-lg p-1 hover:bg-accent" aria-label="Open account menu" aria-expanded={openMenu === 'account'}><span className="flex size-8 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">{initials}</span><span className="hidden text-sm font-medium sm:block">{displayName}</span><ChevronDown size={14} className="text-muted-foreground" /></button>{openMenu === 'account' && <div className="absolute right-0 top-full z-50 mt-2 w-48 rounded-lg border border-border bg-card p-1 shadow-xl"><Link href="/settings" onClick={() => setOpenMenu(null)} className="block rounded-md px-3 py-2 text-sm hover:bg-accent">Settings</Link><Link href="/dashboard" onClick={() => setOpenMenu(null)} className="block rounded-md px-3 py-2 text-sm hover:bg-accent">Back to dashboard</Link><button type="button" onClick={() => { setOpenMenu(null); void handleLogout() }} className="block w-full rounded-md px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10">Log out</button></div>}</div></div>
           </header>
 
           <div className="mx-auto max-w-[1500px] px-5 py-8 md:px-8 lg:px-10">
