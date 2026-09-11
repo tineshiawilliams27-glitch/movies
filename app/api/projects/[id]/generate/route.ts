@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { filmBibles, filmCharacters, generationJobs, generationOutbox, projects, storyboardShots } from '@/lib/db/schema'
+import { filmBibles, filmCharacters, generationJobs, generationOutbox, generationRuns, projects, storyboardShots } from '@/lib/db/schema'
 import { enqueueGenerationJob } from '@/lib/queue'
 
 const requestSchema = z.object({
@@ -46,16 +46,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (parsed.data.kind === 'pipeline') {
     const output = result.output as z.infer<typeof pipelineSchema>
     if (!output || !Array.isArray(output.characters) || !Array.isArray(output.shots)) return NextResponse.json({ error: 'Generation returned an incomplete pipeline.' }, { status: 502 })
-    await db.insert(filmBibles).values({ userId: session.user.id, projectId: id, logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible }).onConflictDoUpdate({ target: filmBibles.projectId, set: { logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible, updatedAt: new Date() } })
-    for (const character of output.characters) await db.insert(filmCharacters).values({ userId: session.user.id, projectId: id, stableKey: character.stableKey, name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity }).onConflictDoUpdate({ target: [filmCharacters.projectId, filmCharacters.stableKey], set: { name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity, updatedAt: new Date() } })
-    for (const shot of output.shots) await db.insert(storyboardShots).values({ userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt }).onConflictDoUpdate({ target: [storyboardShots.projectId, storyboardShots.shotNumber], set: { sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt, updatedAt: new Date() } })
+    const [latestRun] = await db.select({ version: generationRuns.version }).from(generationRuns).where(eq(generationRuns.projectId, id)).orderBy(desc(generationRuns.version)).limit(1)
+    const [run] = await db.insert(generationRuns).values({ userId: session.user.id, projectId: id, version: (latestRun?.version ?? 0) + 1, prompt: parsed.data.prompt }).returning()
+    if (!run) return NextResponse.json({ error: 'Generation run could not be created.' }, { status: 500 })
+    await db.insert(filmBibles).values({ userId: session.user.id, projectId: id, generationRunId: run.id, version: run.version, logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible }).onConflictDoUpdate({ target: filmBibles.projectId, set: { logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible, updatedAt: new Date() } })
+    for (const character of output.characters) await db.insert(filmCharacters).values({ userId: session.user.id, projectId: id, generationRunId: run.id, version: run.version, stableKey: character.stableKey, name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity }).onConflictDoUpdate({ target: [filmCharacters.projectId, filmCharacters.stableKey], set: { name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity, updatedAt: new Date() } })
+    for (const shot of output.shots) await db.insert(storyboardShots).values({ userId: session.user.id, projectId: id, generationRunId: run.id, version: run.version, shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt }).onConflictDoUpdate({ target: [storyboardShots.projectId, storyboardShots.shotNumber], set: { sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt, updatedAt: new Date() } })
     const queuedJobs = await Promise.all(output.shots.map(async (shot) => {
       const idempotencyKey = `video:${shot.shotNumber}:${shot.framePrompt}`
       const payload = { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood }
       const { job, created } = await db.transaction(async (tx) => {
         const [existing] = await tx.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.idempotencyKey, idempotencyKey))).limit(1)
         if (existing) return { job: existing, created: false }
-        const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, type: 'VIDEO_GENERATION', payload, idempotencyKey }).returning()
+        const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: run.id, type: 'VIDEO_GENERATION', payload, idempotencyKey }).returning()
         if (!createdJob) return { job: null, created: false }
         await tx.insert(generationOutbox).values({ jobId: createdJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdJob.id, type: 'VIDEO_GENERATION', payload } })
         return { job: createdJob, created: true }

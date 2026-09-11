@@ -1,0 +1,10 @@
+ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS "generationRunId" uuid;
+ALTER TABLE film_bibles ADD COLUMN IF NOT EXISTS "generationRunId" uuid;
+ALTER TABLE film_bibles ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;
+ALTER TABLE film_characters ADD COLUMN IF NOT EXISTS "generationRunId" uuid;
+ALTER TABLE film_characters ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;
+ALTER TABLE storyboard_shots ADD COLUMN IF NOT EXISTS "generationRunId" uuid;
+ALTER TABLE storyboard_shots ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;
+CREATE TABLE IF NOT EXISTS generation_runs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), "userId" text NOT NULL, "projectId" uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE, version integer NOT NULL, status text NOT NULL DEFAULT 'ACTIVE', prompt text NOT NULL DEFAULT '', "createdAt" timestamptz NOT NULL DEFAULT now());
+CREATE UNIQUE INDEX IF NOT EXISTS generation_runs_project_version_unique ON generation_runs("projectId", version);
+CREATE INDEX IF NOT EXISTS generation_runs_project_created_idx ON generation_runs("projectId", "createdAt");
