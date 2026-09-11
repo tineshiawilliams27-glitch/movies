@@ -236,9 +236,16 @@ const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
     }
     const outputPath = join(workdir, 'film.mp4')
     await new Promise<void>((resolve, reject) => {
+      const width = payload.aspectRatio === '9:16' ? 1080 : 1920
+      const height = payload.aspectRatio === '9:16' ? 1920 : 1080
+      const frameRate = Number(payload.frameRate) || 24
+      const videoFilters = inputs.map((_, index) => `[${index}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${frameRate},format=yuv420p,setpts=PTS-STARTPTS[v${index}]`).join(';')
+      const concatInputs = inputs.map((_, index) => `[v${index}]`).join('')
+      const filterComplex = `${videoFilters};${concatInputs}concat=n=${inputs.length}:v=1:a=0[vout]`
       let command = ffmpeg().setFfmpegPath(executablePath)
       for (const input of inputs) command = command.input(input)
-      command.outputOptions(['-map 0:v:0', '-c:v libx264', '-preset veryfast', '-pix_fmt yuv420p', '-movflags +faststart', '-r 24']).on('end', () => resolve()).on('error', reject).save(outputPath)
+      command = command.input('anullsrc=channel_layout=stereo:sample_rate=48000').inputOptions(['-f', 'lavfi'])
+      command.outputOptions(['-filter_complex', filterComplex, '-map', '[vout]', '-map', `${inputs.length}:a:0`, '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-shortest', '-movflags', '+faststart']).on('end', () => resolve()).on('error', reject).save(outputPath)
     })
     const blob = await put(`film-exports/${jobId}.mp4`, await (await import('node:fs/promises')).readFile(outputPath), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
     const [media] = await db.insert(mediaAssets).values({ userId, projectId, kind: 'VIDEO_EXPORT', pathname: blob.pathname, contentType: 'video/mp4', metadata: { jobId, sourceCount: inputs.length } }).returning({ id: mediaAssets.id })
