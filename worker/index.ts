@@ -7,6 +7,8 @@ const port = Number(process.env.WORKER_PORT || 8787)
 const redis = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN ? Redis.fromEnv() : null
 const appUrl = process.env.APP_URL?.replace(/\/$/, '')
 const workerToken = process.env.WORKER_TOKEN
+const maxAttempts = Math.max(1, Number(process.env.WORKER_MAX_ATTEMPTS || 3))
+const retryDelayMs = Math.max(1000, Number(process.env.WORKER_RETRY_DELAY_MS || 5000))
 type Progress = { status: 'PROCESSING' | 'COMPLETED' | 'FAILED'; progress: number; stage: string; error?: string; result?: Record<string, unknown> }
 type QueuedJob = { jobId: string; type?: string; payload?: Record<string, unknown> }
 
@@ -20,15 +22,24 @@ async function report(jobId: string, payload: Progress) {
 }
 
 async function processJob(jobId: string, queuedPayload: Record<string, unknown> = {}, jobType?: string) {
-  try {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
     await report(jobId, { status: 'PROCESSING', progress: 10, stage: 'Worker accepted job' })
     const providerType = typeof queuedPayload.type === 'string' ? queuedPayload.type : jobType ?? 'VIDEO_GENERATION'
     await report(jobId, { status: 'PROCESSING', progress: 45, stage: `Dispatching ${providerType.toLowerCase()} provider` })
     const payload = { type: providerType, jobId, prompt: queuedPayload.prompt || process.env.VIDEO_PROMPT || 'Cinematic storyboard shot with natural movement and consistent visual identity.', durationSeconds: queuedPayload.durationSeconds || 4, ...queuedPayload }
     const result = await providerFor(providerType)({ jobId, payload })
-    await report(jobId, { status: 'COMPLETED', progress: 100, stage: 'Generation complete', result: { ...result.result, generatedAt: new Date().toISOString() } })
-  } catch (error) {
-    await report(jobId, { status: 'FAILED', progress: 45, stage: 'Generation failed', error: error instanceof Error ? error.message : 'Generation failed.' }).catch((callbackError) => console.error('[v0] worker callback failed', callbackError))
+      await report(jobId, { status: 'COMPLETED', progress: 100, stage: 'Generation complete', result: { ...result.result, generatedAt: new Date().toISOString() } })
+      return
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Generation failed.'
+      if (attempt < maxAttempts) {
+        await report(jobId, { status: 'PROCESSING', progress: 45, stage: `Retrying generation (${attempt}/${maxAttempts})`, error: message }).catch((callbackError) => console.error('[v0] worker callback failed', callbackError))
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * 2 ** (attempt - 1)))
+        continue
+      }
+      await report(jobId, { status: 'FAILED', progress: 45, stage: 'Generation failed', error: message }).catch((callbackError) => console.error('[v0] worker callback failed', callbackError))
+    }
   }
 }
 
