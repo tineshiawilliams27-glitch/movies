@@ -9,6 +9,8 @@ import { filmBibles, filmCharacters, generationJobs, generationOutbox, generatio
 import { start } from 'workflow/api'
 import { processGenerationPipeline } from '@/workflows/generation'
 
+export const maxDuration = 300
+
 const requestSchema = z.object({
   kind: z.enum(['story', 'scene', 'character', 'visual', 'audio', 'pipeline']),
   prompt: z.string().trim().min(1),
