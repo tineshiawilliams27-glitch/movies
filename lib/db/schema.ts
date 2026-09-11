@@ -163,7 +163,7 @@ export const filmBibles = pgTable('film_bibles', {
   styleBible: jsonb('styleBible').notNull().default({}),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-})
+}, (table) => ({ projectIdx: index('film_bibles_project_idx').on(table.projectId) }))
 
 export const filmCharacters = pgTable('film_characters', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -180,7 +180,7 @@ export const filmCharacters = pgTable('film_characters', {
   referenceAssetId: uuid('referenceAssetId').references(() => mediaAssets.id, { onDelete: 'set null' }),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectCharacterKeyVersionUnique: uniqueIndex('film_characters_project_key_version_unique').on(table.projectId, table.stableKey, table.version) }))
+}, (table) => ({ projectIdx: index('film_characters_project_idx').on(table.projectId), projectCharacterKeyVersionUnique: uniqueIndex('film_characters_project_key_version_unique').on(table.projectId, table.stableKey, table.version) }))
 
 export const storyboardShots = pgTable('storyboard_shots', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -206,7 +206,7 @@ export const storyboardShots = pgTable('storyboard_shots', {
   status: text('status').notNull().default('PLANNED'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectShotVersionUnique: uniqueIndex('storyboard_shots_project_number_version_unique').on(table.projectId, table.shotNumber, table.version) }))
+}, (table) => ({ projectIdx: index('storyboard_shots_project_idx').on(table.projectId), projectShotVersionUnique: uniqueIndex('storyboard_shots_project_number_version_unique').on(table.projectId, table.shotNumber, table.version) }))
 
 export const timelineItems = pgTable('timeline_items', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -223,4 +223,4 @@ export const timelineItems = pgTable('timeline_items', {
   metadata: jsonb('metadata').notNull().default({}),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectTrackStartIdx: index('timeline_items_project_track_start_idx').on(table.projectId, table.trackType, table.startSeconds, table.id) }))
+}, (table) => ({ projectIdx: index('timeline_items_project_idx').on(table.projectId), projectTrackStartIdx: index('timeline_items_project_track_start_idx').on(table.projectId, table.trackType, table.startSeconds, table.id) }))
