@@ -54,7 +54,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
           setActiveId(data.scenes?.[0]?.id ?? null)
         }
       } catch {
-        if (!cancelled) setMessage('Unable to load workspace data')
+        if (!cancelled) setMessage('Unable to load workspace data. Check your connection.')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -116,7 +116,12 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     setSaving(true)
     try {
       const response = await fetch(`/api/projects/${projectId}/scenes/${activeScene.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(activeScene) })
-      setMessage(response.ok ? 'Saved' : 'Save failed')
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setMessage(data?.error || 'Save failed')
+        return
+      }
+      setMessage('Saved')
     } catch { setMessage('Save failed. Check your connection.') }
     finally { setSaving(false) }
     window.setTimeout(() => setMessage(''), 2000)

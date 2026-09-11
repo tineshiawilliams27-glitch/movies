@@ -49,8 +49,9 @@ export function ExportSuite({ projectId }: { projectId: string }) {
     try {
       const response = await fetch(`/api/projects/${projectId}/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'VIDEO_EXPORT', payload: settings }) })
       if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
         setStatus('error')
-        setError('The export could not be queued. Review the project and try again.')
+        setError(data?.error || 'The export could not be queued. Review the project and try again.')
         return
       }
       const data = await response.json()
