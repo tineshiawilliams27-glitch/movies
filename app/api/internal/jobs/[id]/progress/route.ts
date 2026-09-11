@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '@/lib/db'
-import { generationJobs, storyboardShots, timelineItems } from '@/lib/db/schema'
+import { filmCharacters, generationJobs, storyboardShots, timelineItems } from '@/lib/db/schema'
 
 const progressSchema = z.object({
   status: z.enum(['QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'DEAD_LETTER']),
@@ -28,6 +28,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!job) return NextResponse.json({ error: 'Progress update conflicted with a newer update.' }, { status: 409 })
   const payload = (job.payload ?? {}) as Record<string, unknown>
   const result = (parsed.data.result ?? {}) as Record<string, unknown>
+  if (job.type === 'CHARACTER_IMAGE_GENERATION' && typeof payload.characterId === 'string' && typeof result.assetId === 'string') {
+    await db.update(filmCharacters).set({ referenceAssetId: result.assetId, updatedAt: new Date() }).where(and(eq(filmCharacters.id, payload.characterId), eq(filmCharacters.projectId, job.projectId), eq(filmCharacters.userId, job.userId)))
+  }
   const shotNumber = Number(payload.shotNumber)
   if (['VIDEO_GENERATION', 'IMAGE_GENERATION', 'AUDIO_GENERATION', 'VOICE_GENERATION'].includes(job.type) && Number.isInteger(shotNumber) && shotNumber > 0) {
     const assetId = typeof result.assetId === 'string' ? result.assetId : undefined
