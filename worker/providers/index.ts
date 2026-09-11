@@ -22,7 +22,7 @@ const voiceProvider = configured(process.env.VOICE_PROVIDER ?? process.env.AUDIO
 const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
 const protofaceEndpoint = (process.env.PROTOFACE_API_URL || 'https://api.protoface.com/v1/runs').trim()
 const protofaceApiKey = (process.env.PROTOFACE_API_KEY || process.env.API_KEY || '').trim()
-const protofaceModel = (process.env.PROTOFACE_VIDEO_MODEL || 'video-generation').trim()
+const protofaceModel = (process.env.PROTOFACE_VIDEO_MODEL || 'minimax/minimax-h3').trim()
 const protofaceImageModel = (process.env.PROTOFACE_IMAGE_MODEL || 'openai/gpt-image-2').trim()
 const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()
 const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
@@ -168,7 +168,9 @@ const protofaceVideoProvider: GenerationProvider = async ({ jobId, payload, onPr
   const prompt = String(payload.prompt ?? 'Cinematic storyboard shot with natural movement and consistent visual identity.')
   const durationSeconds = Math.min(10, Math.max(1, Number(payload.durationSeconds) || 4))
   const referenceImageUrls = Array.isArray(payload.referenceImageUrls) ? payload.referenceImageUrls.filter((value): value is string => typeof value === 'string' && value.startsWith('http')) : []
-  const created = await fetch(protofaceEndpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${protofaceApiKey}` }, body: JSON.stringify({ model: protofaceModel, prompt, duration: durationSeconds, duration_seconds: durationSeconds, ...(referenceImageUrls.length ? { image_url: referenceImageUrls[0], reference_images: referenceImageUrls } : {}), metadata: { jobId } }) })
+  const aspectRatio = typeof payload.aspectRatio === 'string' ? payload.aspectRatio : '16:9'
+  const quality = typeof payload.quality === 'string' ? payload.quality : '768p'
+  const created = await fetch(`${protofaceEndpoint.replace(/\/runs$/, '')}/run/${protofaceModel}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${protofaceApiKey}` }, body: JSON.stringify({ operation: 'video.generate', prompt, duration_seconds: durationSeconds, quality, aspect_ratio: aspectRatio, ...(referenceImageUrls.length ? { first_frame: referenceImageUrls[0] } : {}), metadata: { jobId } }) })
   if (!created.ok) throw new Error(`Protoface video request failed with ${created.status}.`)
   let operation = await created.json() as { id?: string; status?: string; output?: string | { url?: string }; output_url?: string; video_url?: string; video?: { url?: string; content_type?: string; file_name?: string }; error?: string; progress?: number }
   const operationId = operation.id
