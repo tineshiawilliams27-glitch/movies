@@ -212,6 +212,8 @@ export const timelineItems = pgTable('timeline_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: text('userId').notNull(),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
+  version: integer('version').notNull().default(1),
   trackType: text('trackType').notNull(),
   label: text('label').notNull().default(''),
   startSeconds: numeric('startSeconds').notNull().default('0'),
