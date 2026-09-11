@@ -229,6 +229,31 @@ const timelineProvider: GenerationProvider = async ({ jobId, payload }) => {
   return { result: { provider: 'timeline', assetId: asset.id, assetPathname: asset.pathname, contentType: asset.contentType, shotNumber, shotKey: shotPrefix, jobId } }
 }
 
+type RenderProfile = {
+  format: 'mp4'
+  width: number
+  height: number
+  fps: number
+  aspectRatio: '16:9' | '9:16' | '1:1'
+  codec: 'libx264'
+  audioCodec: 'aac'
+}
+
+function resolveRenderProfile(payload: Record<string, unknown>): RenderProfile {
+  const resolutions: Record<string, [number, number]> = {
+    '1920 × 1080': [1920, 1080],
+    '3840 × 2160': [3840, 2160],
+    '1280 × 720': [1280, 720],
+  }
+  const requestedResolution = typeof payload.resolution === 'string' ? payload.resolution : '1920 × 1080'
+  const [baseWidth, baseHeight] = resolutions[requestedResolution] ?? resolutions['1920 × 1080']
+  const aspectRatio = payload.aspectRatio === '9:16' || payload.aspectRatio === '1:1' ? payload.aspectRatio : '16:9'
+  const dimensions = aspectRatio === '9:16' ? [baseHeight, baseWidth] : aspectRatio === '1:1' ? [Math.min(baseWidth, baseHeight), Math.min(baseWidth, baseHeight)] : [baseWidth, baseHeight]
+  const fpsValue = Number.parseInt(String(payload.frameRate ?? '24'), 10)
+  const fps = [24, 30, 60].includes(fpsValue) ? fpsValue : 24
+  return { format: 'mp4', width: dimensions[0], height: dimensions[1], fps, aspectRatio, codec: 'libx264', audioCodec: 'aac' }
+}
+
 const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
   if (!ffmpegPath) throw new Error('FFmpeg binary is unavailable in this runtime.')
   const executablePath = ffmpegPath
@@ -252,22 +277,20 @@ const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
       await writeFile(inputPath, buffer)
       inputs.push(inputPath)
     }
+    const profile = resolveRenderProfile(payload)
     const outputPath = join(workdir, 'film.mp4')
     await new Promise<void>((resolve, reject) => {
-      const width = payload.aspectRatio === '9:16' ? 1080 : 1920
-      const height = payload.aspectRatio === '9:16' ? 1920 : 1080
-      const frameRate = Number(payload.frameRate) || 24
-      const videoFilters = inputs.map((_, index) => `[${index}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${frameRate},format=yuv420p,setpts=PTS-STARTPTS[v${index}]`).join(';')
+      const videoFilters = inputs.map((_, index) => `[${index}:v]scale=${profile.width}:${profile.height}:force_original_aspect_ratio=decrease,pad=${profile.width}:${profile.height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${profile.fps},format=yuv420p,setpts=PTS-STARTPTS[v${index}]`).join(';')
       const concatInputs = inputs.map((_, index) => `[v${index}]`).join('')
       const filterComplex = `${videoFilters};${concatInputs}concat=n=${inputs.length}:v=1:a=0[vout]`
       let command = ffmpeg().setFfmpegPath(executablePath)
       for (const input of inputs) command = command.input(input)
       command = command.input('anullsrc=channel_layout=stereo:sample_rate=48000').inputOptions(['-f', 'lavfi'])
-      command.outputOptions(['-filter_complex', filterComplex, '-map', '[vout]', '-map', `${inputs.length}:a:0`, '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-shortest', '-movflags', '+faststart']).on('end', () => resolve()).on('error', reject).save(outputPath)
+      command.outputOptions(['-filter_complex', filterComplex, '-map', '[vout]', '-map', `${inputs.length}:a:0`, '-r', String(profile.fps), '-c:v', profile.codec, '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', profile.audioCodec, '-b:a', '192k', '-ar', '48000', '-shortest', '-movflags', '+faststart']).on('end', () => resolve()).on('error', reject).save(outputPath)
     })
     const blob = await put(`film-exports/${jobId}.mp4`, await (await import('node:fs/promises')).readFile(outputPath), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
-    const [media] = await db.insert(mediaAssets).values({ userId, projectId, kind: 'VIDEO_EXPORT', pathname: blob.pathname, contentType: 'video/mp4', metadata: { jobId, sourceCount: inputs.length } }).returning({ id: mediaAssets.id })
-    const manifest = { jobId, projectId, format: 'mp4', resolution: payload.resolution || '1080p', frameRate: payload.frameRate || 24, aspectRatio: payload.aspectRatio || '16:9', createdAt: new Date().toISOString(), status: 'READY', assetPathname: blob.pathname, mediaId: media?.id, sourceCount: inputs.length }
+    const [media] = await db.insert(mediaAssets).values({ userId, projectId, kind: 'VIDEO_EXPORT', pathname: blob.pathname, contentType: 'video/mp4', metadata: { jobId, sourceCount: inputs.length, renderProfile: profile } }).returning({ id: mediaAssets.id })
+    const manifest = { jobId, projectId, format: profile.format, resolution: `${profile.width} × ${profile.height}`, frameRate: `${profile.fps} fps`, aspectRatio: profile.aspectRatio, createdAt: new Date().toISOString(), status: 'READY', assetPathname: blob.pathname, mediaId: media?.id, sourceCount: inputs.length }
     return { result: { provider: 'ffmpeg', assetPathname: blob.pathname, mediaId: media?.id, manifest } }
   } finally { await rm(workdir, { recursive: true, force: true }) }
 }
