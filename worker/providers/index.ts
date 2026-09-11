@@ -272,7 +272,7 @@ function resolveRenderProfile(payload: Record<string, unknown>): RenderProfile {
   return { format: 'mp4', width: dimensions[0], height: dimensions[1], fps, aspectRatio, codec: 'libx264', audioCodec: 'aac' }
 }
 
-const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
+const videoExportProvider: GenerationProvider = async ({ jobId, payload, onProgress }) => {
   if (!ffmpegPath) throw new Error('FFmpeg binary is unavailable in this runtime.')
   const executablePath = ffmpegPath
   const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
@@ -307,6 +307,7 @@ const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
         audioInputs.push({ path: inputPath, startSeconds: Math.max(0, Number(item.startSeconds) || 0), durationSeconds: Math.max(0.1, Number(item.durationSeconds) || 1) })
       }
       const profile = resolveRenderProfile(payload)
+      await onProgress?.(10, `Preparing ${profile.width} × ${profile.height} ${profile.fps}fps render`)
       const outputPath = join(workdir, 'film.mp4')
       await new Promise<void>((resolve, reject) => {
         const videoFilters = inputs.map((_, index) => `[${index}:v]scale=${profile.width}:${profile.height}:force_original_aspect_ratio=decrease,pad=${profile.width}:${profile.height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${profile.fps},format=yuv420p,setpts=PTS-STARTPTS[v${index}]`).join(';')
@@ -318,7 +319,7 @@ const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
           const audioLabels = audioInputs.map((_, index) => `[a${index}]`).join('')
           filterParts.push(`${audioFilters};${audioLabels}amix=inputs=${audioInputs.length}:duration=longest:dropout_transition=2,alimiter=limit=0.95[aout]`)
         } else {
-          filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=1[aout]`)
+          filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=48000[aout]`)
         }
         const filterComplex = filterParts.join(';')
         let command = ffmpeg().setFfmpegPath(executablePath)
@@ -327,6 +328,7 @@ const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
         if (audioInputs.length === 0) command = command.input('anullsrc=channel_layout=stereo:sample_rate=48000').inputOptions(['-f', 'lavfi'])
         command.outputOptions(['-filter_complex', filterComplex, '-map', '[vout]', '-map', '[aout]', '-r', String(profile.fps), '-c:v', profile.codec, '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', profile.audioCodec, '-b:a', '192k', '-ar', '48000', '-shortest', '-movflags', '+faststart']).on('end', () => resolve()).on('error', reject).save(outputPath)
       })
+    await onProgress?.(90, 'Uploading rendered MP4')
     const blob = await put(`film-exports/${jobId}.mp4`, await (await import('node:fs/promises')).readFile(outputPath), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
     const [media] = await db.insert(mediaAssets).values({ userId, projectId, kind: 'VIDEO_EXPORT', pathname: blob.pathname, contentType: 'video/mp4', metadata: { jobId, sourceCount: inputs.length, renderProfile: profile } }).returning({ id: mediaAssets.id })
     const manifest = { jobId, projectId, format: profile.format, resolution: `${profile.width} × ${profile.height}`, frameRate: `${profile.fps} fps`, aspectRatio: profile.aspectRatio, createdAt: new Date().toISOString(), status: 'READY', assetPathname: blob.pathname, mediaId: media?.id, sourceCount: inputs.length }
