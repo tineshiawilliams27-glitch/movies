@@ -18,7 +18,9 @@ export async function getUserId() {
 
 export async function requireProject(projectId: string) {
   if (!z.string().uuid().safeParse(projectId).success) notFound()
-  const user = await requireUser()
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) redirect(`/login?redirect=${encodeURIComponent('/projects/' + projectId)}`)
+  const user = session.user
   const project = await db.query.projects.findFirst({ where: and(eq(projects.id, projectId), eq(projects.userId, user.id)) })
   if (project) return project
 
