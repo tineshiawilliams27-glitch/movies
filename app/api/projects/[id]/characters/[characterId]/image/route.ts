@@ -36,9 +36,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const imageUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output
     const imageResponse = await fetch(imageUrl)
     if (!imageResponse.ok) throw new Error('Generated image could not be downloaded')
-    const blob = await put(`projects/${id}/characters/${characterId}/${crypto.randomUUID()}.png`, await imageResponse.blob(), { access: 'public', contentType: 'image/png', addRandomSuffix: false })
-    const [media] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, kind: 'CHARACTER_REFERENCE', pathname: blob.url, contentType: 'image/png', metadata: { characterId, prompt, source: `replicate/${model}` } }).returning()
-    return NextResponse.json({ imageUrl: blob.url, media })
+    const blob = await put(`projects/${id}/characters/${characterId}/${crypto.randomUUID()}.png`, await imageResponse.blob(), { access: 'private', contentType: 'image/png', addRandomSuffix: false })
+    const [media] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, kind: 'CHARACTER_REFERENCE', pathname: blob.pathname, contentType: 'image/png', metadata: { characterId, prompt, source: `replicate/${model}` } }).returning()
+    return NextResponse.json({ imageUrl: `/api/media/${media.id}`, media: { ...media, deliveryUrl: `/api/media/${media.id}` } })
   } catch (error) {
     console.error('[v0] character image generation failed', error)
     return NextResponse.json({ error: 'Unable to generate the character image right now. Please try again.' }, { status: 502 })
