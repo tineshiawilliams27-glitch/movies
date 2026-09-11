@@ -80,7 +80,7 @@ async function persistGeneratedMedia(payload: Record<string, unknown>, pathname:
   const userId = typeof payload.userId === 'string' ? payload.userId : ''
   const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
   if (!userId || !projectId) throw new Error(`${kind} generation requires project and user context.`)
-  const [asset] = await db.insert(mediaAssets).values({ userId, projectId, kind, pathname, contentType, durationSeconds: typeof payload.durationSeconds === 'number' ? String(payload.durationSeconds) : undefined, metadata }).returning({ id: mediaAssets.id })
+  const [asset] = await db.insert(mediaAssets).values({ userId, projectId, kind, pathname, contentType, durationSeconds: typeof payload.durationSeconds === 'number' ? String(payload.durationSeconds) : undefined, metadata: { ...metadata, sourceJobId: typeof payload.jobId === 'string' ? payload.jobId : undefined, projectId, contentType } }).returning({ id: mediaAssets.id })
   return asset.id
 }
 
