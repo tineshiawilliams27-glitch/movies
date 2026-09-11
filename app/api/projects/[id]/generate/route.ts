@@ -63,33 +63,40 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       for (const character of output.characters) await tx.insert(filmCharacters).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, stableKey: character.stableKey, name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity })
       for (const shot of output.shots) await tx.insert(storyboardShots).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt })
       const jobs: Array<{ id: string; type: string; payload: Record<string, unknown> }> = []
+      const shotVideoJobIds: string[] = []
       for (const shot of output.shots) {
-        const idempotencyKey = `video:${createdRun.version}:${shot.shotNumber}:${shot.framePrompt}`
-        const payload = { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood }
-        const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: 'VIDEO_GENERATION', payload, idempotencyKey }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
-        if (createdJob) {
-          await tx.insert(generationOutbox).values({ jobId: createdJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdJob.id, type: 'VIDEO_GENERATION', payload } })
-          jobs.push({ id: createdJob.id, type: 'VIDEO_GENERATION', payload })
-        }
         const stageJobs = [
           { type: 'IMAGE_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: `${shot.framePrompt}\n\nScene: ${shot.sceneLabel}. Shot type: ${shot.shotType}. Camera movement: ${shot.cameraMovement}. Lighting: ${shot.lighting}. Mood: ${shot.mood}. Preserve character and location continuity across the film.`, durationSeconds: shot.durationSeconds, aspectRatio: '16:9', stage: 'visual' } },
           { type: 'AUDIO_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, text: shot.dialogue || `Ambient sound design for ${shot.title}`, prompt: shot.dialogue || `Ambient sound design for ${shot.title}`, durationSeconds: shot.durationSeconds, stage: 'voice' } },
         ]
+        const dependencyIds: string[] = []
         for (const stageJob of stageJobs) {
-          const [createdStageJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: stageJob.type, payload: stageJob.payload, idempotencyKey: `${stageJob.type.toLowerCase()}:${createdRun.version}:${shot.shotNumber}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
+          const payload = { ...stageJob.payload, dependsOnJobIds: [] }
+          const [createdStageJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: stageJob.type, payload, idempotencyKey: `${stageJob.type.toLowerCase()}:${createdRun.version}:${shot.shotNumber}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
           if (createdStageJob) {
-            await tx.insert(generationOutbox).values({ jobId: createdStageJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdStageJob.id, type: stageJob.type, payload: stageJob.payload } })
-            jobs.push({ id: createdStageJob.id, type: stageJob.type, payload: stageJob.payload })
+            await tx.insert(generationOutbox).values({ jobId: createdStageJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdStageJob.id, type: stageJob.type, payload } })
+            jobs.push({ id: createdStageJob.id, type: stageJob.type, payload })
+            dependencyIds.push(createdStageJob.id)
           }
         }
+        const videoPayload = { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dependsOnJobIds: dependencyIds }
+        const [createdVideoJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: 'VIDEO_GENERATION', payload: videoPayload, idempotencyKey: `video:${createdRun.version}:${shot.shotNumber}:${shot.framePrompt}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
+        if (createdVideoJob) {
+          await tx.insert(generationOutbox).values({ jobId: createdVideoJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdVideoJob.id, type: 'VIDEO_GENERATION', payload: videoPayload } })
+          jobs.push({ id: createdVideoJob.id, type: 'VIDEO_GENERATION', payload: videoPayload })
+          shotVideoJobIds.push(createdVideoJob.id)
+        }
       }
-      const timelinePayload = { userId: session.user.id, projectId: id, generationRunId: createdRun.id, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline' }
-      const exportPayload = { ...timelinePayload, stage: 'export' }
+      const timelinePayload = { userId: session.user.id, projectId: id, generationRunId: createdRun.id, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline', dependsOnJobIds: shotVideoJobIds }
+      const exportPayload = { ...timelinePayload, stage: 'export', dependsOnJobIds: [] as string[] }
+      let timelineJobId: string | undefined
       for (const stageJob of [{ type: 'TIMELINE', payload: timelinePayload }, { type: 'VIDEO_EXPORT', payload: exportPayload }]) {
-        const [createdStageJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: stageJob.type, payload: stageJob.payload, idempotencyKey: `${stageJob.type.toLowerCase()}:${createdRun.version}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
+        const payload = stageJob.type === 'VIDEO_EXPORT' ? { ...stageJob.payload, dependsOnJobIds: timelineJobId ? [timelineJobId] : [] } : stageJob.payload
+        const [createdStageJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: stageJob.type, payload, idempotencyKey: `${stageJob.type.toLowerCase()}:${createdRun.version}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
         if (createdStageJob) {
-          await tx.insert(generationOutbox).values({ jobId: createdStageJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdStageJob.id, type: stageJob.type, payload: stageJob.payload } })
-          jobs.push({ id: createdStageJob.id, type: stageJob.type, payload: stageJob.payload })
+          await tx.insert(generationOutbox).values({ jobId: createdStageJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdStageJob.id, type: stageJob.type, payload } })
+          jobs.push({ id: createdStageJob.id, type: stageJob.type, payload })
+          if (stageJob.type === 'TIMELINE') timelineJobId = createdStageJob.id
         }
       }
       return { run: createdRun, jobs }

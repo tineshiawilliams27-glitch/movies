@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { sleep } from 'workflow'
 import { db } from '@/lib/db'
 import { generationJobs } from '@/lib/db/schema'
@@ -25,7 +25,22 @@ async function executeGeneration(jobId: string, userId: string, type: string, qu
   return providerFor(providerType)({ jobId, payload })
 }
 
+async function waitForDependencies(userId: string, dependencyIds: string[]) {
+  'use step'
+  if (dependencyIds.length === 0) return
+  const dependencies = await db.select({ id: generationJobs.id, status: generationJobs.status }).from(generationJobs).where(and(eq(generationJobs.userId, userId), inArray(generationJobs.id, dependencyIds)))
+  const dependencyMap = new Map(dependencies.map((dependency) => [dependency.id, dependency.status]))
+  const missing = dependencyIds.filter((dependencyId) => !dependencyMap.has(dependencyId))
+  if (missing.length > 0) throw new Error(`Generation dependencies are missing: ${missing.join(', ')}`)
+  const failed = dependencyIds.find((dependencyId) => ['FAILED', 'DEAD_LETTER', 'CANCELLED'].includes(dependencyMap.get(dependencyId) || ''))
+  if (failed) throw new Error(`Generation dependency ${failed} failed before this job could run.`)
+  const incomplete = dependencyIds.filter((dependencyId) => dependencyMap.get(dependencyId) !== 'COMPLETED')
+  if (incomplete.length > 0) throw new Error(`Generation dependencies are not complete: ${incomplete.join(', ')}`)
+}
+
 async function processStage(jobId: string, userId: string, type: string, payload: JobPayload) {
+  const dependencyIds = Array.isArray(payload.dependsOnJobIds) ? payload.dependsOnJobIds.filter((value): value is string => typeof value === 'string') : []
+  if (dependencyIds.length > 0) await waitForDependencies(userId, dependencyIds)
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const result = await executeGeneration(jobId, userId, type, payload)
