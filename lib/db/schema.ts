@@ -122,6 +122,20 @@ export const generationJobs = pgTable('generation_jobs', {
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({ projectStatusIdx: index('generation_jobs_project_status_idx').on(table.projectId, table.status, table.createdAt), projectIdempotencyUnique: uniqueIndex('generation_jobs_project_idempotency_unique').on(table.projectId, table.idempotencyKey).where(sql`"idempotencyKey" IS NOT NULL`) }))
 
+export const generationOutbox = pgTable('generation_outbox', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  jobId: uuid('jobId').notNull().references(() => generationJobs.id, { onDelete: 'cascade' }),
+  eventType: text('eventType').notNull(),
+  payload: jsonb('payload').notNull().default({}),
+  status: text('status').notNull().default('PENDING'),
+  attempts: integer('attempts').notNull().default(0),
+  availableAt: timestamp('availableAt', { withTimezone: true }).notNull().defaultNow(),
+  lockedAt: timestamp('lockedAt', { withTimezone: true }),
+  processedAt: timestamp('processedAt', { withTimezone: true }),
+  lastError: text('lastError'),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ pendingIdx: index('generation_outbox_pending_idx').on(table.status, table.availableAt), jobUnique: uniqueIndex('generation_outbox_job_event_unique').on(table.jobId, table.eventType) }))
+
 export const filmBibles = pgTable('film_bibles', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: text('userId').notNull(),

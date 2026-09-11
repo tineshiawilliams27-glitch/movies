@@ -1,0 +1,3 @@
+CREATE TABLE IF NOT EXISTS generation_outbox (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), "jobId" uuid NOT NULL REFERENCES generation_jobs(id) ON DELETE CASCADE, "eventType" text NOT NULL, payload jsonb NOT NULL DEFAULT '{}'::jsonb, status text NOT NULL DEFAULT 'PENDING', attempts integer NOT NULL DEFAULT 0, "availableAt" timestamptz NOT NULL DEFAULT now(), "lockedAt" timestamptz, "processedAt" timestamptz, "lastError" text, "createdAt" timestamptz NOT NULL DEFAULT now());
+CREATE UNIQUE INDEX IF NOT EXISTS generation_outbox_job_event_unique ON generation_outbox("jobId", "eventType");
+CREATE INDEX IF NOT EXISTS generation_outbox_pending_idx ON generation_outbox(status, "availableAt");
