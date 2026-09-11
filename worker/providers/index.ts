@@ -23,6 +23,7 @@ const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
 const protofaceEndpoint = (process.env.PROTOFACE_API_URL || 'https://api.protoface.com/v1/runs').trim()
 const protofaceApiKey = (process.env.PROTOFACE_API_KEY || process.env.API_KEY || '').trim()
 const protofaceModel = (process.env.PROTOFACE_VIDEO_MODEL || 'video-generation').trim()
+const protofaceImageModel = (process.env.PROTOFACE_IMAGE_MODEL || 'openai/gpt-image-2').trim()
 const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()
 const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
 const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
@@ -189,6 +190,32 @@ const protofaceVideoProvider: GenerationProvider = async ({ jobId, payload, onPr
   const blob = await put(`film-clips/${jobId}.mp4`, await video.blob(), { access: 'private', contentType, addRandomSuffix: false })
   const assetId = await persistGeneratedMedia(payload, blob.pathname, contentType, 'VIDEO_CLIP', { provider: 'protoface', model: protofaceModel, operationId, fileName: operation.video?.file_name })
   return { result: { provider: 'protoface', model: protofaceModel, operationId, assetPathname: blob.pathname, assetId, status: operation.status || 'completed' } }
+}
+
+const protofaceImageProvider: GenerationProvider = async ({ jobId, payload, onProgress }) => {
+  if (!protofaceApiKey) return { status: 'NOT_CONFIGURED', result: { code: 'PROTOFACE_NOT_CONFIGURED', message: 'Set PROTOFACE_API_KEY to enable Protoface image generation.' } }
+  const prompt = String(payload.prompt ?? 'Cinematic storyboard frame with consistent character identity and clear composition.')
+  const created = await fetch(`${protofaceEndpoint.replace(/\/runs$/, '')}/run/${protofaceImageModel}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${protofaceApiKey}` }, body: JSON.stringify({ operation: 'image.generate', prompt, quality: String(payload.quality ?? 'high'), resolution: String(payload.resolution ?? '2k'), ...(typeof payload.referenceImageUrl === 'string' ? { image_url: payload.referenceImageUrl } : {}) }) })
+  if (!created.ok) throw new Error(`Protoface image request failed with ${created.status}.`)
+  let operation = await created.json() as { id?: string; status?: string; image?: { url?: string; content_type?: string; file_name?: string }; error?: string }
+  if (!operation.id && !operation.image?.url) throw new Error('Protoface returned no image run ID or image URL.')
+  for (let attempt = 0; operation.id && attempt < 90 && !['succeeded', 'completed', 'failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase()); attempt += 1) {
+    await onProgress?.(Math.min(95, 10 + Math.round((attempt / 90) * 85)), operation.status === 'queued' ? 'Queued image with Protoface' : 'Generating image with Protoface')
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const response = await fetch(`${protofaceEndpoint.replace(/\/$/, '')}/${encodeURIComponent(operation.id)}`, { headers: { authorization: `Bearer ${protofaceApiKey}` } })
+    if (!response.ok) throw new Error(`Protoface image polling failed with ${response.status}.`)
+    operation = await response.json()
+  }
+  if (['failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase())) throw new Error(operation.error || `Protoface image run ended with ${operation.status}.`)
+  const outputUrl = operation.image?.url
+  if (!outputUrl) throw new Error('Protoface completed without an image URL.')
+  const image = await fetch(outputUrl)
+  if (!image.ok) throw new Error('Protoface returned an unreadable image.')
+  await onProgress?.(96, 'Saving Protoface image')
+  const contentType = operation.image?.content_type || image.headers.get('content-type') || 'image/png'
+  const blob = await put(`storyboard-images/${jobId}.png`, await image.blob(), { access: 'private', contentType, addRandomSuffix: false })
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, contentType, 'IMAGE_GENERATED', { provider: 'protoface', model: protofaceImageModel, operationId: operation.id, fileName: operation.image?.file_name, quality: payload.quality || 'high', resolution: payload.resolution || '2k' })
+  return { result: { provider: 'protoface', model: protofaceImageModel, operationId: operation.id, assetPathname: blob.pathname, assetId, kind: 'IMAGE' } }
 }
 
 const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) => {
@@ -375,6 +402,7 @@ export function providerFor(type: string): GenerationProvider {
   if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
   if (type === 'VIDEO_GENERATION' && configured === 'protoface') return protofaceVideoProvider
   if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return imageGenerationProvider
+  if (type === 'IMAGE_GENERATION' && configured === 'protoface') return protofaceImageProvider
   if (type === 'IMAGE_GENERATION' && configured === 'replicate') return replicateImageProvider
   if (type === 'CHARACTER_GENERATION' && configured === 'replicate') return characterImageProvider
   if (type === 'VOICE_GENERATION' && configured === 'http' && audioEndpoint) return audioGenerationProvider
