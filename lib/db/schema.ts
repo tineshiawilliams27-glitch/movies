@@ -204,4 +204,4 @@ export const timelineItems = pgTable('timeline_items', {
   metadata: jsonb('metadata').notNull().default({}),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-})
+}, (table) => ({ projectTrackStartIdx: index('timeline_items_project_track_start_idx').on(table.projectId, table.trackType, table.startSeconds, table.id) }))

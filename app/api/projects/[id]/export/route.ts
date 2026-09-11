@@ -16,7 +16,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const [bible] = await db.select().from(filmBibles).where(and(eq(filmBibles.projectId, id), eq(filmBibles.userId, session.user.id))).limit(1)
   const characters = await db.select().from(filmCharacters).where(and(eq(filmCharacters.projectId, id), eq(filmCharacters.userId, session.user.id))).orderBy(asc(filmCharacters.createdAt))
   const shots = await db.select().from(storyboardShots).where(and(eq(storyboardShots.projectId, id), eq(storyboardShots.userId, session.user.id))).orderBy(asc(storyboardShots.shotNumber))
-  const timeline = await db.select().from(timelineItems).where(and(eq(timelineItems.projectId, id), eq(timelineItems.userId, session.user.id))).orderBy(asc(timelineItems.startSeconds))
+  const timeline = await db.select().from(timelineItems).where(and(eq(timelineItems.projectId, id), eq(timelineItems.userId, session.user.id))).orderBy(asc(timelineItems.trackType), asc(timelineItems.startSeconds), asc(timelineItems.id))
   const media = await db.select().from(mediaAssets).where(and(eq(mediaAssets.projectId, id), eq(mediaAssets.userId, session.user.id))).orderBy(asc(mediaAssets.createdAt))
   return NextResponse.json(
     {
