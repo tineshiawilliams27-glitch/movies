@@ -20,7 +20,7 @@ async function processJob(jobId: string) {
   try {
     await report(jobId, { status: 'PROCESSING', progress: 10, stage: 'Worker accepted job' })
     await report(jobId, { status: 'PROCESSING', progress: 45, stage: demoMode ? 'Running deterministic demo provider' : 'Dispatching generation provider' })
-    const payload = { type: 'GENERATION_JOB', jobId }
+    const payload = { type: 'GENERATION_JOB', jobId, prompt: process.env.VIDEO_PROMPT || 'Cinematic storyboard shot with natural movement and consistent visual identity.', durationSeconds: 4 }
     const result = demoMode ? await demoProvider({ jobId, payload }) : await providerFor('VIDEO_GENERATION')({ jobId, payload })
     await report(jobId, { status: 'COMPLETED', progress: 100, stage: 'Generation complete', result: { ...result.result, generatedAt: new Date().toISOString() } })
   } catch (error) {
