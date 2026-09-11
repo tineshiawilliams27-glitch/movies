@@ -5,7 +5,7 @@ import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { filmBibles, filmCharacters, generationJobs, projects, storyboardShots } from '@/lib/db/schema'
+import { filmBibles, filmCharacters, generationJobs, generationOutbox, projects, storyboardShots } from '@/lib/db/schema'
 import { enqueueGenerationJob } from '@/lib/queue'
 
 const requestSchema = z.object({
@@ -51,15 +51,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     for (const shot of output.shots) await db.insert(storyboardShots).values({ userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt }).onConflictDoUpdate({ target: [storyboardShots.projectId, storyboardShots.shotNumber], set: { sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt, updatedAt: new Date() } })
     const queuedJobs = await Promise.all(output.shots.map(async (shot) => {
       const idempotencyKey = `video:${shot.shotNumber}:${shot.framePrompt}`
-      const [job] = await db.insert(generationJobs).values({
-        userId: session.user.id,
-        projectId: id,
-        type: 'VIDEO_GENERATION',
-        payload: { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood },
-        idempotencyKey,
-      }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
+      const payload = { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood }
+      const { job, created } = await db.transaction(async (tx) => {
+        const [existing] = await tx.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.idempotencyKey, idempotencyKey))).limit(1)
+        if (existing) return { job: existing, created: false }
+        const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, type: 'VIDEO_GENERATION', payload, idempotencyKey }).returning()
+        if (!createdJob) return { job: null, created: false }
+        await tx.insert(generationOutbox).values({ jobId: createdJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdJob.id, type: 'VIDEO_GENERATION', payload } })
+        return { job: createdJob, created: true }
+      })
       if (!job?.id) return null
-      await enqueueGenerationJob(job.id, job.payload as Record<string, unknown>)
+      if (created) await enqueueGenerationJob(job.id, payload, 'VIDEO_GENERATION')
       return job.id
     }))
     return NextResponse.json({ output, queuedJobIds: queuedJobs.filter(Boolean) })

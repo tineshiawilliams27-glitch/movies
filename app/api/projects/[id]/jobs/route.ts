@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { generationJobs, projects, scenes } from '@/lib/db/schema'
+import { generationJobs, generationOutbox, projects, scenes } from '@/lib/db/schema'
 import { enqueueGenerationJob } from '@/lib/queue'
 
 const createJobSchema = z.object({
   type: z.enum(['STORY_GENERATION', 'IMAGE_GENERATION', 'VIDEO_GENERATION', 'VOICE_GENERATION', 'VIDEO_RENDER', 'VIDEO_EXPORT']),
   sceneId: z.string().uuid().optional(),
+  idempotencyKey: z.string().trim().min(1).max(200).optional(),
   payload: z.record(z.string().max(120), z.unknown()).refine((value) => Object.keys(value).length <= 100, { message: 'Job payload may contain at most 100 fields.' }).refine((value) => JSON.stringify(value).length <= 100000, { message: 'Job payload is too large.' }).default({}),
 })
 
@@ -40,8 +41,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const [scene] = await db.select({ id: scenes.id }).from(scenes).where(and(eq(scenes.id, parsed.data.sceneId), eq(scenes.projectId, id), eq(scenes.userId, session.user.id))).limit(1)
     if (!scene) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   }
-  const [job] = await db.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, payload: parsed.data.payload }).returning()
+  const { job, created } = await db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), parsed.data.idempotencyKey ? eq(generationJobs.idempotencyKey, parsed.data.idempotencyKey) : sql`false`)).limit(1)
+    if (existing) return { job: existing, created: false }
+    const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, idempotencyKey: parsed.data.idempotencyKey, payload: parsed.data.payload }).returning()
+    if (!createdJob) throw new Error('Generation job could not be created.')
+    await tx.insert(generationOutbox).values({ jobId: createdJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdJob.id, type: parsed.data.type, payload: parsed.data.payload } })
+    return { job: createdJob, created: true }
+  })
   if (!job?.id) return NextResponse.json({ error: 'Generation job could not be created.' }, { status: 500 })
+  if (!created) return NextResponse.json({ job, deduplicated: true }, { status: 200 })
   try {
     await enqueueGenerationJob(job.id, parsed.data.payload, parsed.data.type)
   } catch (error) {
