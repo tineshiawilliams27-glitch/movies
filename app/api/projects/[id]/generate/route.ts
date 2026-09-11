@@ -66,7 +66,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       for (const shot of output.shots) {
         const stageJobs = [
           { type: 'IMAGE_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: `${shot.framePrompt}\n\nScene: ${shot.sceneLabel}. Shot type: ${shot.shotType}. Camera movement: ${shot.cameraMovement}. Lighting: ${shot.lighting}. Mood: ${shot.mood}. Preserve character and location continuity across the film.`, durationSeconds: shot.durationSeconds, aspectRatio: '16:9', stage: 'visual' } },
-          { type: 'AUDIO_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, text: shot.dialogue || `Ambient sound design for ${shot.title}`, prompt: shot.dialogue || `Ambient sound design for ${shot.title}`, durationSeconds: shot.durationSeconds, stage: 'voice' } },
+          { type: 'VOICE_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, text: shot.dialogue || `Ambient sound design for ${shot.title}`, prompt: shot.dialogue || `Ambient sound design for ${shot.title}`, durationSeconds: shot.durationSeconds, stage: 'voice' } },
         ]
         const dependencyIds: string[] = []
         for (const stageJob of stageJobs) {
@@ -89,13 +89,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const timelinePayload = { userId: session.user.id, projectId: id, generationRunId: createdRun.id, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline', dependsOnJobIds: shotVideoJobIds }
       const exportPayload = { ...timelinePayload, stage: 'export', dependsOnJobIds: [] as string[] }
       let timelineJobId: string | undefined
-      for (const stageJob of [{ type: 'TIMELINE', payload: timelinePayload }, { type: 'VIDEO_EXPORT', payload: exportPayload }]) {
+      for (const stageJob of [{ type: 'TIMELINE_BUILD', payload: timelinePayload }, { type: 'VIDEO_EXPORT', payload: exportPayload }]) {
         const payload = stageJob.type === 'VIDEO_EXPORT' ? { ...stageJob.payload, dependsOnJobIds: timelineJobId ? [timelineJobId] : [] } : stageJob.payload
         const [createdStageJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: stageJob.type, payload, idempotencyKey: `${stageJob.type.toLowerCase()}:${createdRun.version}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
         if (createdStageJob) {
           await tx.insert(generationOutbox).values({ jobId: createdStageJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdStageJob.id, type: stageJob.type, payload } })
           jobs.push({ id: createdStageJob.id, type: stageJob.type, payload })
-          if (stageJob.type === 'TIMELINE') timelineJobId = createdStageJob.id
+          if (stageJob.type === 'TIMELINE_BUILD') timelineJobId = createdStageJob.id
         }
       }
       return { run: createdRun, jobs }
@@ -103,12 +103,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       console.error('[v0] pipeline transaction rolled back', error)
       throw error
     })
-    const stageOrder: Record<string, number> = { IMAGE_GENERATION: 0, AUDIO_GENERATION: 1, VIDEO_GENERATION: 2, TIMELINE: 3, VIDEO_EXPORT: 4 }
+    const stageOrder: Record<string, number> = { IMAGE_GENERATION: 0, AUDIO_GENERATION: 1, VIDEO_GENERATION: 2, TIMELINE_BUILD: 3, VIDEO_EXPORT: 4 }
     const orderedJobs = jobs.map((job) => ({ jobId: job.id, type: job.type, payload: job.payload })).sort((left, right) => {
       const leftShot = Number(left.payload.shotNumber ?? -1)
       const rightShot = Number(right.payload.shotNumber ?? -1)
-      const leftIsFinalStage = left.type === 'TIMELINE' || left.type === 'VIDEO_EXPORT'
-      const rightIsFinalStage = right.type === 'TIMELINE' || right.type === 'VIDEO_EXPORT'
+      const leftIsFinalStage = left.type === 'TIMELINE_BUILD' || left.type === 'VIDEO_EXPORT'
+      const rightIsFinalStage = right.type === 'TIMELINE_BUILD' || right.type === 'VIDEO_EXPORT'
       if (leftIsFinalStage && !rightIsFinalStage) return 1
       if (!leftIsFinalStage && rightIsFinalStage) return -1
       if (leftIsFinalStage && rightIsFinalStage) return (stageOrder[left.type] ?? 99) - (stageOrder[right.type] ?? 99)

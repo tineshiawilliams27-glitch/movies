@@ -19,7 +19,7 @@ async function executeGeneration(jobId: string, userId: string, type: string, qu
   'use step'
   const providerType = typeof queuedPayload.type === 'string' ? queuedPayload.type : type
   await db.update(generationJobs).set({ status: 'PROCESSING', progress: 10, stage: 'Workflow accepted job', attempts: 1, updatedAt: new Date() }).where(and(eq(generationJobs.id, jobId), eq(generationJobs.userId, userId)))
-  const stageLabels: Record<string, string> = { PIPELINE_GENERATION: 'Building editable story treatment', IMAGE_GENERATION: 'Generating visuals', CHARACTER_IMAGE_GENERATION: 'Generating character portrait', AUDIO_GENERATION: 'Generating voices', VOICE_GENERATION: 'Generating voices', TIMELINE: 'Assembling timeline', VIDEO_EXPORT: 'Building final export', VIDEO_GENERATION: 'Generating clips' }
+  const stageLabels: Record<string, string> = { SCRIPT_GENERATION: 'Building editable story treatment', SCENE_GENERATION: 'Generating scenes', IMAGE_GENERATION: 'Generating visuals', CHARACTER_GENERATION: 'Generating character portrait', VOICE_GENERATION: 'Generating voices', TIMELINE_BUILD: 'Assembling timeline', VIDEO_EXPORT: 'Building final export', VIDEO_GENERATION: 'Generating clips' }
   await updateJob(jobId, userId, { progress: 45, stage: stageLabels[providerType] || `Dispatching ${providerType.toLowerCase()} provider` })
   const payload = { type: providerType, jobId, prompt: queuedPayload.prompt || process.env.VIDEO_PROMPT || 'Cinematic storyboard shot with natural movement and consistent visual identity.', durationSeconds: queuedPayload.durationSeconds || 4, ...queuedPayload }
   return providerFor(providerType)({ jobId, payload })

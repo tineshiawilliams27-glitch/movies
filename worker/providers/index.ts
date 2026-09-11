@@ -30,9 +30,8 @@ const elevenLabsModelId = (process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingu
 const providerConfig = {
   VIDEO_GENERATION: videoProvider,
   IMAGE_GENERATION: imageProvider,
-  AUDIO_GENERATION: voiceProvider,
   VOICE_GENERATION: voiceProvider,
-  TIMELINE: configured(process.env.TIMELINE_PROVIDER, localProviderName),
+  TIMELINE_BUILD: configured(process.env.TIMELINE_PROVIDER, localProviderName),
   VIDEO_EXPORT: configured(process.env.VIDEO_EXPORT_PROVIDER, localProviderName),
 } as const
 
@@ -55,7 +54,7 @@ const sceneBreakdownProvider: GenerationProvider = async ({ payload }) => {
       current.description = `${String(current.description || '')}\n\n${String(shot.description || '')}`.trim()
       current.dialogue = `${String(current.dialogue || '')}\n${String(shot.dialogue || '')}`.trim()
       current.durationSeconds = Number(current.durationSeconds || 0) + Number(shot.durationSeconds || 0)
-    } else grouped.set(label, { title: typeof shot.title === 'string' ? shot.title : label, description: shot.description || '', dialogue: shot.dialogue || '', location: shot.location || label, durationSeconds: Number(shot.durationSeconds || 0), metadata: { source: 'SCENE_BREAKDOWN', shotNumbers: [shot.shotNumber] } })
+    } else grouped.set(label, { title: typeof shot.title === 'string' ? shot.title : label, description: shot.description || '', dialogue: shot.dialogue || '', location: shot.location || label, durationSeconds: Number(shot.durationSeconds || 0), metadata: { source: 'SCENE_GENERATION', shotNumbers: [shot.shotNumber] } })
   }
   const generatedScenes = Array.from(grouped.values())
   await db.transaction(async (tx) => {
@@ -218,7 +217,7 @@ const elevenLabsAudioProvider: GenerationProvider = async ({ jobId, payload }) =
   return { result: { provider: 'elevenlabs', voiceId: elevenLabsVoiceId, modelId: elevenLabsModelId, assetPathname: blob.pathname, assetId, kind: 'AUDIO' } }
 }
 
-const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('AUDIO_GENERATION (AUDIO_PROVIDER_URL)')(context)
+const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('VOICE_GENERATION (AUDIO_PROVIDER_URL)')(context)
 const timelineProvider: GenerationProvider = async ({ jobId, payload }) => {
   const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
   const userId = typeof payload.userId === 'string' ? payload.userId : ''
@@ -274,16 +273,16 @@ const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
 }
 
 export function providerFor(type: string): GenerationProvider {
-  if (type === 'SCENE_BREAKDOWN') return sceneBreakdownProvider
-  if (type === 'PIPELINE_GENERATION' || type === 'TEXT_GENERATION') return gatewayTextProvider
+  if (type === 'SCENE_GENERATION') return sceneBreakdownProvider
+  if (type === 'SCRIPT_GENERATION') return gatewayTextProvider
   const configured = providerConfig[type as keyof typeof providerConfig]
   if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
   if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return imageGenerationProvider
   if (type === 'IMAGE_GENERATION' && configured === 'replicate') return replicateImageProvider
-  if (type === 'CHARACTER_IMAGE_GENERATION' && configured === 'replicate') return characterImageProvider
-  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http' && audioEndpoint) return audioGenerationProvider
-  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return elevenLabsAudioProvider
-  if (type === 'TIMELINE' && configured === 'local') return timelineProvider
+  if (type === 'CHARACTER_GENERATION' && configured === 'replicate') return characterImageProvider
+  if (type === 'VOICE_GENERATION' && configured === 'http' && audioEndpoint) return audioGenerationProvider
+  if (type === 'VOICE_GENERATION' && configured === 'elevenlabs') return elevenLabsAudioProvider
+  if (type === 'TIMELINE_BUILD' && configured === 'local') return timelineProvider
   if (type === 'VIDEO_EXPORT' && configured === 'local') return videoExportProvider
   return unavailableProvider(`${type} (${configured || 'unknown'})`)
 }
