@@ -8,6 +8,7 @@ const baseURL = process.env.BETTER_AUTH_URL ??
 
 export const auth = betterAuth({
   database: pool,
+  ...(process.env.BETTER_AUTH_SECRET ? { secret: process.env.BETTER_AUTH_SECRET } : {}),
   baseURL,
   emailAndPassword: { enabled: true, autoSignIn: true },
   socialProviders: {
@@ -21,6 +22,7 @@ export const auth = betterAuth({
     },
   },
   trustedOrigins: [
+    ...(process.env.BETTER_AUTH_URL ? [process.env.BETTER_AUTH_URL] : []),
     ...(process.env.NODE_ENV === 'development' ? [
       'http://localhost:3000',
       ...(process.env.V0_RUNTIME_URL ? [process.env.V0_RUNTIME_URL] : []),
@@ -35,7 +37,5 @@ export const auth = betterAuth({
     ] : []),
   ],
   session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
-  ...(process.env.NODE_ENV === 'development' ? {
-    advanced: { defaultCookieAttributes: { sameSite: 'none' as const, secure: true } },
-  } : {}),
+  advanced: { defaultCookieAttributes: { sameSite: 'none' as const, secure: true } },
 })
