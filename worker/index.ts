@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { dequeueJob, getQueueKey } from './queue'
-import { getJob } from './jobs'
+import { claimJob, getJob } from './jobs'
 import { processGenerationJob } from '../workflows/generation'
 
 const port = Number(process.env.PORT || 8080)
@@ -14,6 +14,8 @@ async function processNextJob() {
   try {
     jobId = await dequeueJob()
     if (!jobId) return
+    const claimed = await claimJob(jobId)
+    if (!claimed) return
     const job = await getJob(jobId)
     await processGenerationJob(job.id, job.userId, job.type, job.payload)
   } catch (error) {

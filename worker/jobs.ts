@@ -23,3 +23,12 @@ export async function getJob(jobId: string) {
 export async function updateJob(jobId: string, values: Record<string, unknown>) {
   await request(`/api/internal/jobs/${encodeURIComponent(jobId)}`, { method: 'PATCH', body: JSON.stringify(values) })
 }
+
+export async function claimJob(jobId: string) {
+  try {
+    const result = await request(`/api/internal/jobs/${encodeURIComponent(jobId)}`, { method: 'PATCH', body: JSON.stringify({ expectedStatus: 'QUEUED', status: 'PROCESSING', stage: 'Claimed by worker', progress: 1 }) })
+    return Boolean(result.job)
+  } catch {
+    return false
+  }
+}

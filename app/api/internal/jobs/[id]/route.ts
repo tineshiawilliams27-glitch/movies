@@ -21,9 +21,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!authorized(request)) return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
   const { id } = await params
   const body = await request.json().catch(() => null)
-  const parsed = z.object({ status: z.string().optional(), progress: z.number().min(0).max(100).optional(), stage: z.string().max(500).optional(), error: z.string().max(4000).nullable().optional() }).safeParse(body)
+  const parsed = z.object({ status: z.string().optional(), expectedStatus: z.string().optional(), progress: z.number().min(0).max(100).optional(), stage: z.string().max(500).optional(), error: z.string().max(4000).nullable().optional() }).safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid job update.' }, { status: 400 })
-  const [job] = await db.update(generationJobs).set({ ...parsed.data, updatedAt: new Date() }).where(eq(generationJobs.id, id)).returning({ id: generationJobs.id })
+  const { expectedStatus, ...values } = parsed.data
+  const [job] = await db.update(generationJobs).set({ ...values, updatedAt: new Date() }).where(and(eq(generationJobs.id, id), expectedStatus ? eq(generationJobs.status, expectedStatus) : undefined)).returning({ id: generationJobs.id })
   if (!job) return NextResponse.json({ error: 'Job not found.' }, { status: 404 })
   return NextResponse.json({ job })
 }
