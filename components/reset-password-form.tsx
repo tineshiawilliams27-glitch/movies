@@ -44,10 +44,10 @@ export function ResetPasswordForm() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6 py-12">
+    <main aria-labelledby="reset-title" className="flex min-h-screen items-center justify-center bg-background px-6 py-12">
       <div className="w-full max-w-md rounded-3xl border border-border bg-card p-8 shadow-2xl">
         <Link href="/" className="font-mono text-xs uppercase tracking-[0.22em] text-primary">Lumen Forge</Link>
-        <h1 className="mt-8 text-3xl font-semibold tracking-tight">Set a new password</h1>
+        <h1 id="reset-title" className="mt-8 text-3xl font-semibold tracking-tight">Set a new password</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">Choose a strong password to get back into your studio.</p>
         {completed ? (
           <div className="mt-8 space-y-4">
@@ -56,11 +56,11 @@ export function ResetPasswordForm() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
-            <label htmlFor="new-password" className="text-sm font-medium">New password<input id="new-password" type="password" autoComplete="new-password" value={password} onChange={(event) => { setPassword(event.target.value); setError('') }} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" /></label>
-            <p className="text-xs leading-5 text-muted-foreground">Use 8+ characters with an uppercase letter and a number.</p>
-            <label htmlFor="confirm-password" className="text-sm font-medium">Confirm new password<input id="confirm-password" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => { setConfirmation(event.target.value); setError('') }} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" /></label>
-            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-            <button disabled={pending} className="rounded-xl bg-primary px-4 py-3 font-medium text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60">{pending ? 'Updating password…' : 'Update password'}</button>
+            <label htmlFor="new-password" className="text-sm font-medium">New password<input id="new-password" aria-invalid={Boolean(error)} aria-describedby="password-help reset-error" type="password" autoComplete="new-password" value={password} onChange={(event) => { setPassword(event.target.value); setError('') }} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-primary" /></label>
+            <p id="password-help" className="text-xs leading-5 text-muted-foreground">Use 8+ characters with an uppercase letter and a number.</p>
+            <label htmlFor="confirm-password" className="text-sm font-medium">Confirm new password<input id="confirm-password" aria-invalid={Boolean(error)} aria-describedby="reset-error" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => { setConfirmation(event.target.value); setError('') }} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-primary" /></label>
+            {error && <p id="reset-error" role="alert" aria-live="assertive" className="text-sm text-destructive">{error}</p>}
+            <button type="submit" disabled={pending} aria-busy={pending} className="rounded-xl bg-primary px-4 py-3 font-medium text-primary-foreground transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60">{pending ? 'Updating password…' : 'Update password'}</button>
             <Link href="/login" className="text-center text-sm text-muted-foreground hover:text-foreground">Back to sign in</Link>
           </form>
         )}
