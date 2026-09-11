@@ -8,9 +8,9 @@ import { characters } from '@/lib/db/schema'
 
 const schema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
-  description: z.string().max(20000).optional(),
-  appearance: z.string().max(20000).optional(),
-  voice: z.string().max(20000).optional(),
+  description: z.string().max(4000).optional(),
+  appearance: z.string().max(4000).optional(),
+  voice: z.string().max(4000).optional(),
 }).refine((data) => Object.keys(data).length > 0, 'At least one character field is required.')
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string; characterId: string }> }) {
