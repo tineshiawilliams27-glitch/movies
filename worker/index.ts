@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import { Redis } from '@upstash/redis'
 import { providerFor } from './providers/index'
+import { acknowledgeGenerationJob, claimGenerationJob, requeueProcessingJobs } from '../lib/queue/index'
 
 const port = Number(process.env.WORKER_PORT || 8787)
 const redis = process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN ? Redis.fromEnv() : null
@@ -34,13 +35,15 @@ async function processJob(jobId: string, queuedPayload: Record<string, unknown> 
 async function processJobs() {
   if (!redis) return
   while (true) {
-    const queued = await redis.rpop<string>('lumen-forge:generation-jobs')
+    const queued = await claimGenerationJob()
     if (!queued) { await new Promise((resolve) => setTimeout(resolve, 2000)); continue }
     try {
       const parsed = JSON.parse(String(queued)) as QueuedJob
       await processJob(parsed.jobId, { ...(parsed.payload ?? {}), type: parsed.type ?? parsed.payload?.type }, parsed.type)
+      await acknowledgeGenerationJob(String(queued))
     } catch {
       await processJob(String(queued))
+      await acknowledgeGenerationJob(String(queued))
     }
   }
 }
@@ -52,4 +55,8 @@ const server = createServer((request, response) => {
   response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: true, worker: 'ready' }))
 })
 
-server.listen(port, () => { console.log(`GPU worker listening on ${port}`); void processJobs() })
+server.listen(port, () => {
+  console.log(`GPU worker listening on ${port}`)
+  void requeueProcessingJobs().catch((error) => console.error('[v0] worker recovery failed', error))
+  void processJobs()
+})
