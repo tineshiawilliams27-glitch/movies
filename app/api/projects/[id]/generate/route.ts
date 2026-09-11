@@ -54,6 +54,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       for (const character of output.characters) await tx.insert(filmCharacters).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, stableKey: character.stableKey, name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity })
       for (const shot of output.shots) await tx.insert(storyboardShots).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt })
       const jobs: Array<{ id: string; type: string; payload: Record<string, unknown> }> = []
+      const scenePayload = { userId: session.user.id, projectId: id, shots: output.shots.map((shot) => ({ shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, dialogue: shot.dialogue, location: shot.sceneLabel, durationSeconds: shot.durationSeconds })) }
+      const [sceneJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: 'SCENE_BREAKDOWN', payload: scenePayload, idempotencyKey: `scene-breakdown:${createdRun.version}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
+      if (sceneJob) {
+        await tx.insert(generationOutbox).values({ jobId: sceneJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: sceneJob.id, type: 'SCENE_BREAKDOWN', payload: scenePayload } })
+        jobs.push({ id: sceneJob.id, type: 'SCENE_BREAKDOWN', payload: scenePayload })
+      }
       for (const shot of output.shots) {
         const idempotencyKey = `video:${createdRun.version}:${shot.shotNumber}:${shot.framePrompt}`
         const payload = { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood }
@@ -82,7 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       throw error
     })
     await Promise.all(jobs.map((job) => enqueueGenerationJob(job.id, job.payload, job.type)))
-    return NextResponse.json({ output, queuedJobIds: jobs.map((job) => job.id), workflow: { treatment: 'COMPLETED', scenes: 'COMPLETED', visuals: 'QUEUED', voices: 'QUEUED', timeline: 'QUEUED' } })
+    return NextResponse.json({ output, queuedJobIds: jobs.map((job) => job.id), workflow: { treatment: 'COMPLETED', scenes: 'QUEUED', visuals: 'QUEUED', voices: 'QUEUED', timeline: 'QUEUED' } })
   }
 
   return NextResponse.json({ result: (result.output as { result: string }).result })
