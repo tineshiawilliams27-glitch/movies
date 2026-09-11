@@ -87,12 +87,20 @@ async function persistGeneratedMedia(payload: Record<string, unknown>, pathname:
 async function replicateVideoProvider({ jobId, payload }: ProviderContext): Promise<ProviderResult> {
   if (!replicateModel) return { status: 'NOT_CONFIGURED', result: { code: 'VIDEO_PROVIDER_NOT_CONFIGURED', message: 'Set REPLICATE_VIDEO_MODEL to enable video generation.' } }
   const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
-  const input = {
-    prompt: String(payload.prompt ?? 'Cinematic storyboard shot with natural movement and consistent visual identity.'),
-    duration: Number(payload.durationSeconds ?? 4),
-  }
   const [owner, model] = replicateModel.split('/')
   if (!owner || !model) throw new Error('REPLICATE_VIDEO_MODEL must use owner/model format.')
+  const modelResponse = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!modelResponse.ok) throw new Error(`Unable to inspect Replicate video model ${replicateModel} (${modelResponse.status}).`)
+  const modelInfo = await modelResponse.json() as { latest_version?: { openapi_schema?: { components?: { schemas?: { Input?: { properties?: Record<string, unknown>; required?: string[] } } } } } }
+  const inputSchema = modelInfo.latest_version?.openapi_schema?.components?.schemas?.Input
+  const properties = inputSchema?.properties ?? {}
+  const input: Record<string, unknown> = { prompt: String(payload.prompt ?? 'Cinematic storyboard shot with natural movement and consistent visual identity.') }
+  const duration = Math.min(10, Math.max(1, Number(payload.durationSeconds) || 4))
+  if (Object.prototype.hasOwnProperty.call(properties, 'duration')) input.duration = duration
+  else if (Object.prototype.hasOwnProperty.call(properties, 'duration_seconds')) input.duration_seconds = duration
+  else if ((inputSchema?.required ?? []).includes('duration')) throw new Error(`Replicate video model ${replicateModel} requires a duration input, but its schema is not supported.`)
+  const unsupportedRequired = (inputSchema?.required ?? []).filter((field) => !(field in input) && field !== 'image')
+  if (unsupportedRequired.length > 0) throw new Error(`Replicate video model ${replicateModel} requires unsupported inputs: ${unsupportedRequired.join(', ')}.`)
   const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
