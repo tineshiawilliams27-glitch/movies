@@ -20,6 +20,10 @@ const videoProvider = configured(process.env.VIDEO_PROVIDER ?? process.env.VIDEO
 const imageProvider = configured(process.env.IMAGE_PROVIDER, 'replicate')
 const voiceProvider = configured(process.env.VOICE_PROVIDER ?? process.env.AUDIO_PROVIDER, 'elevenlabs')
 const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
+const protofaceEndpoint = (process.env.PROTOFACE_API_URL || 'https://api.protoface.com/v1/runs').trim()
+const protofaceApiKey = (process.env.PROTOFACE_API_KEY || process.env.API_KEY || '').trim()
+const protofaceModel = (process.env.PROTOFACE_VIDEO_MODEL || 'minimax/minimax-h3').trim()
+const protofaceImageModel = (process.env.PROTOFACE_IMAGE_MODEL || 'openai/gpt-image-2').trim()
 const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()
 const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
 const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
@@ -157,6 +161,65 @@ async function httpMediaProvider({ jobId, payload, onProgress }: ProviderContext
   const blob = await put(`film-${kind.toLowerCase()}/${jobId}`, await media.blob(), { access: 'private', contentType: data.mimeType || media.headers.get('content-type') || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), addRandomSuffix: false })
   const assetId = await persistGeneratedMedia(payload, blob.pathname, data.mimeType || media.headers.get('content-type') || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), kind === 'IMAGE' ? 'IMAGE_GENERATED' : 'AUDIO_GENERATED', { provider: endpoint })
   return { result: { provider: endpoint, assetPathname: blob.pathname, assetId, kind, durationSeconds: data.durationSeconds } }
+}
+
+const protofaceVideoProvider: GenerationProvider = async ({ jobId, payload, onProgress }) => {
+  if (!protofaceApiKey) return { status: 'NOT_CONFIGURED', result: { code: 'PROTOFACE_NOT_CONFIGURED', message: 'Set PROTOFACE_API_KEY to enable Protoface video generation.' } }
+  const prompt = String(payload.prompt ?? 'Cinematic storyboard shot with natural movement and consistent visual identity.')
+  const durationSeconds = Math.min(10, Math.max(1, Number(payload.durationSeconds) || 4))
+  const referenceImageUrls = Array.isArray(payload.referenceImageUrls) ? payload.referenceImageUrls.filter((value): value is string => typeof value === 'string' && value.startsWith('http')) : []
+  const aspectRatio = typeof payload.aspectRatio === 'string' ? payload.aspectRatio : '16:9'
+  const quality = typeof payload.quality === 'string' ? payload.quality : '768p'
+  const created = await fetch(`${protofaceEndpoint.replace(/\/runs$/, '')}/run/${protofaceModel}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${protofaceApiKey}` }, body: JSON.stringify({ operation: 'video.generate', prompt, duration_seconds: durationSeconds, quality, aspect_ratio: aspectRatio, ...(referenceImageUrls.length ? { first_frame: referenceImageUrls[0] } : {}), metadata: { jobId } }) })
+  if (!created.ok) throw new Error(`Protoface video request failed with ${created.status}.`)
+  let operation = await created.json() as { id?: string; status?: string; output?: string | { url?: string }; output_url?: string; video_url?: string; video?: { url?: string; content_type?: string; file_name?: string }; error?: string; progress?: number }
+  const operationId = operation.id
+  if (!operationId && !(operation.output_url || operation.video_url || operation.video?.url || (typeof operation.output === 'string') || operation.output?.url)) throw new Error('Protoface returned no operation ID or video URL.')
+  for (let attempt = 0; operationId && attempt < 90 && !['succeeded', 'completed', 'failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase()); attempt += 1) {
+    await onProgress?.(Math.min(95, 10 + Math.round((attempt / 90) * 85)), operation.status === 'queued' ? 'Queued with Protoface' : 'Rendering video with Protoface')
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+    const response = await fetch(`${protofaceEndpoint.replace(/\/$/, '')}/${encodeURIComponent(operationId)}`, { headers: { authorization: `Bearer ${protofaceApiKey}` } })
+    if (!response.ok) throw new Error(`Protoface polling failed with ${response.status}.`)
+    operation = await response.json()
+  }
+  if (['failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase())) throw new Error(operation.error || `Protoface ended with ${operation.status}.`)
+  const outputUrl = operation.video?.url || operation.output_url || operation.video_url || (typeof operation.output === 'string' ? operation.output : operation.output?.url)
+  if (!outputUrl) throw new Error('Protoface completed without a video URL.')
+  const video = await fetch(outputUrl)
+  if (!video.ok) throw new Error('Protoface returned an unreadable video.')
+  await onProgress?.(96, 'Saving Protoface video')
+  const contentType = operation.video?.content_type || 'video/mp4'
+  const blob = await put(`film-clips/${jobId}.mp4`, await video.blob(), { access: 'private', contentType, addRandomSuffix: false })
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, contentType, 'VIDEO_CLIP', { provider: 'protoface', model: protofaceModel, operationId, fileName: operation.video?.file_name })
+  return { result: { provider: 'protoface', model: protofaceModel, operationId, assetPathname: blob.pathname, assetId, status: operation.status || 'completed' } }
+}
+
+const protofaceImageProvider: GenerationProvider = async ({ jobId, payload, onProgress }) => {
+  if (!protofaceApiKey) return { status: 'NOT_CONFIGURED', result: { code: 'PROTOFACE_NOT_CONFIGURED', message: 'Set PROTOFACE_API_KEY to enable Protoface image generation.' } }
+  const prompt = String(payload.prompt ?? 'Cinematic storyboard frame with consistent character identity and clear composition.')
+  const created = await fetch(`${protofaceEndpoint.replace(/\/runs$/, '')}/run/${protofaceImageModel}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${protofaceApiKey}` }, body: JSON.stringify({ operation: 'image.generate', prompt, quality: String(payload.quality ?? 'high'), resolution: String(payload.resolution ?? '2k'), ...(typeof payload.referenceImageUrl === 'string' ? { image_url: payload.referenceImageUrl } : {}) }) })
+  if (!created.ok) throw new Error(`Protoface image request failed with ${created.status}.`)
+  let operation = await created.json() as { id?: string; status?: string; image?: { url?: string; content_type?: string; file_name?: string }; outputs?: Array<{ role?: string; modality?: string; type?: string; asset_id?: string; file?: { url?: string; content_type?: string } }>; error?: string }
+  const getImageOutput = (value: typeof operation) => value.image?.url ? { url: value.image.url, contentType: value.image.content_type, fileName: value.image.file_name, assetId: undefined as string | undefined } : value.outputs?.find((output) => output.modality === 'image' && output.file?.url)?.file ? { url: value.outputs.find((output) => output.modality === 'image' && output.file?.url)?.file?.url as string, contentType: value.outputs.find((output) => output.modality === 'image' && output.file?.url)?.file?.content_type, fileName: undefined, assetId: value.outputs.find((output) => output.modality === 'image' && output.file?.url)?.asset_id } : null
+  if (!operation.id && !getImageOutput(operation)?.url) throw new Error('Protoface returned no image run ID or image URL.')
+  for (let attempt = 0; operation.id && attempt < 90 && !['succeeded', 'completed', 'failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase()); attempt += 1) {
+    await onProgress?.(Math.min(95, 10 + Math.round((attempt / 90) * 85)), operation.status === 'queued' ? 'Queued image with Protoface' : 'Generating image with Protoface')
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const response = await fetch(`${protofaceEndpoint.replace(/\/$/, '')}/${encodeURIComponent(operation.id)}`, { headers: { authorization: `Bearer ${protofaceApiKey}` } })
+    if (!response.ok) throw new Error(`Protoface image polling failed with ${response.status}.`)
+    operation = await response.json()
+  }
+  if (['failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase())) throw new Error(operation.error || `Protoface image run ended with ${operation.status}.`)
+  const imageOutput = getImageOutput(operation)
+  const outputUrl = imageOutput?.url
+  if (!outputUrl) throw new Error('Protoface completed without an image URL.')
+  const image = await fetch(outputUrl)
+  if (!image.ok) throw new Error('Protoface returned an unreadable image.')
+  await onProgress?.(96, 'Saving Protoface image')
+  const contentType = imageOutput?.contentType || image.headers.get('content-type') || 'image/png'
+  const blob = await put(`storyboard-images/${jobId}.png`, await image.blob(), { access: 'private', contentType, addRandomSuffix: false })
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, contentType, 'IMAGE_GENERATED', { provider: 'protoface', model: protofaceImageModel, operationId: operation.id, fileName: imageOutput?.fileName, upstreamAssetId: imageOutput?.assetId, quality: payload.quality || 'high', resolution: payload.resolution || '2k' })
+  return { result: { provider: 'protoface', model: protofaceImageModel, operationId: operation.id, assetPathname: blob.pathname, assetId, kind: 'IMAGE' } }
 }
 
 const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) => {
@@ -341,7 +404,9 @@ export function providerFor(type: string): GenerationProvider {
   if (type === 'SCRIPT_GENERATION') return gatewayTextProvider
   const configured = providerConfig[type as keyof typeof providerConfig]
   if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
+  if (type === 'VIDEO_GENERATION' && configured === 'protoface') return protofaceVideoProvider
   if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return imageGenerationProvider
+  if (type === 'IMAGE_GENERATION' && configured === 'protoface') return protofaceImageProvider
   if (type === 'IMAGE_GENERATION' && configured === 'replicate') return replicateImageProvider
   if (type === 'CHARACTER_GENERATION' && configured === 'replicate') return characterImageProvider
   if (type === 'VOICE_GENERATION' && configured === 'http' && audioEndpoint) return audioGenerationProvider
