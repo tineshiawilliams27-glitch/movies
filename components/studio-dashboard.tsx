@@ -93,6 +93,10 @@ export function StudioDashboard({ persistedProjects = [], userName, userEmail }:
         return
       }
       const data = await response.json()
+      if (!data.project?.id) {
+        setCreateError('Project was created without a valid record. Please try again.')
+        return
+      }
       const project: Project = {
         id: data.project.id,
         title: data.project.title,
@@ -120,6 +124,10 @@ export function StudioDashboard({ persistedProjects = [], userName, userEmail }:
         return
       }
       const data = await response.json()
+      if (!data.project?.id) {
+        setCreateError('Duplicated project is missing a valid record. Please try again.')
+        return
+      }
       setProjects((current) => [{ ...project, id: data.project.id, title: data.project.title, updated: 'Just now', status: 'Draft' }, ...current])
       setSaved(true)
       window.setTimeout(() => setSaved(false), 2200)
