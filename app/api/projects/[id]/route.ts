@@ -6,7 +6,8 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 
-const updateSchema = z.object({ title: z.string().trim().min(1).max(200).optional(), concept: z.string().max(20000).optional(), format: z.string().max(80).optional(), metadata: z.record(z.string(), z.unknown()).optional() }).refine((value) => Object.keys(value).length > 0, { message: 'At least one project field is required.' })
+const metadataSchema = z.record(z.string().max(120), z.unknown()).refine((value) => Object.keys(value).length <= 100, { message: 'Metadata may contain at most 100 fields.' }).refine((value) => JSON.stringify(value).length <= 100000, { message: 'Metadata is too large.' })
+const updateSchema = z.object({ title: z.string().trim().min(1).max(200).optional(), concept: z.string().max(20000).optional(), format: z.string().max(80).optional(), metadata: metadataSchema.optional() }).refine((value) => Object.keys(value).length > 0, { message: 'At least one project field is required.' })
 
 async function getUserId() {
   const session = await auth.api.getSession({ headers: await headers() })
