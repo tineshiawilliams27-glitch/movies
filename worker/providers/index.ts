@@ -20,6 +20,9 @@ const videoProvider = configured(process.env.VIDEO_PROVIDER ?? process.env.VIDEO
 const imageProvider = configured(process.env.IMAGE_PROVIDER, 'replicate')
 const voiceProvider = configured(process.env.VOICE_PROVIDER ?? process.env.AUDIO_PROVIDER, 'elevenlabs')
 const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
+const protofaceEndpoint = (process.env.PROTOFACE_API_URL || 'https://api.protoface.com/v1/video/generations').trim()
+const protofaceApiKey = (process.env.PROTOFACE_API_KEY || process.env.API_KEY || '').trim()
+const protofaceModel = (process.env.PROTOFACE_VIDEO_MODEL || 'video-generation').trim()
 const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()
 const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
 const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
@@ -157,6 +160,34 @@ async function httpMediaProvider({ jobId, payload, onProgress }: ProviderContext
   const blob = await put(`film-${kind.toLowerCase()}/${jobId}`, await media.blob(), { access: 'private', contentType: data.mimeType || media.headers.get('content-type') || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), addRandomSuffix: false })
   const assetId = await persistGeneratedMedia(payload, blob.pathname, data.mimeType || media.headers.get('content-type') || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), kind === 'IMAGE' ? 'IMAGE_GENERATED' : 'AUDIO_GENERATED', { provider: endpoint })
   return { result: { provider: endpoint, assetPathname: blob.pathname, assetId, kind, durationSeconds: data.durationSeconds } }
+}
+
+const protofaceVideoProvider: GenerationProvider = async ({ jobId, payload, onProgress }) => {
+  if (!protofaceApiKey) return { status: 'NOT_CONFIGURED', result: { code: 'PROTOFACE_NOT_CONFIGURED', message: 'Set PROTOFACE_API_KEY to enable Protoface video generation.' } }
+  const prompt = String(payload.prompt ?? 'Cinematic storyboard shot with natural movement and consistent visual identity.')
+  const durationSeconds = Math.min(10, Math.max(1, Number(payload.durationSeconds) || 4))
+  const referenceImageUrls = Array.isArray(payload.referenceImageUrls) ? payload.referenceImageUrls.filter((value): value is string => typeof value === 'string' && value.startsWith('http')) : []
+  const created = await fetch(protofaceEndpoint, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${protofaceApiKey}` }, body: JSON.stringify({ model: protofaceModel, prompt, duration: durationSeconds, duration_seconds: durationSeconds, ...(referenceImageUrls.length ? { image_url: referenceImageUrls[0], reference_images: referenceImageUrls } : {}), metadata: { jobId } }) })
+  if (!created.ok) throw new Error(`Protoface video request failed with ${created.status}.`)
+  let operation = await created.json() as { id?: string; status?: string; output?: string | { url?: string }; output_url?: string; video_url?: string; error?: string; progress?: number }
+  const operationId = operation.id
+  if (!operationId && !(operation.output_url || operation.video_url || (typeof operation.output === 'string') || operation.output?.url)) throw new Error('Protoface returned no operation ID or video URL.')
+  for (let attempt = 0; operationId && attempt < 90 && !['succeeded', 'completed', 'failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase()); attempt += 1) {
+    await onProgress?.(Math.min(95, 10 + Math.round((attempt / 90) * 85)), operation.status === 'queued' ? 'Queued with Protoface' : 'Rendering video with Protoface')
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+    const response = await fetch(`${protofaceEndpoint.replace(/\\/$/, '')}/${encodeURIComponent(operationId)}`, { headers: { authorization: `Bearer ${protofaceApiKey}` } })
+    if (!response.ok) throw new Error(`Protoface polling failed with ${response.status}.`)
+    operation = await response.json()
+  }
+  if (['failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase())) throw new Error(operation.error || `Protoface ended with ${operation.status}.`)
+  const outputUrl = operation.output_url || operation.video_url || (typeof operation.output === 'string' ? operation.output : operation.output?.url)
+  if (!outputUrl) throw new Error('Protoface completed without a video URL.')
+  const video = await fetch(outputUrl)
+  if (!video.ok) throw new Error('Protoface returned an unreadable video.')
+  await onProgress?.(96, 'Saving Protoface video')
+  const blob = await put(`film-clips/${jobId}.mp4`, await video.blob(), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, 'video/mp4', 'VIDEO_CLIP', { provider: 'protoface', model: protofaceModel, operationId })
+  return { result: { provider: 'protoface', model: protofaceModel, operationId, assetPathname: blob.pathname, assetId, status: operation.status || 'completed' } }
 }
 
 const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) => {
@@ -341,6 +372,7 @@ export function providerFor(type: string): GenerationProvider {
   if (type === 'SCRIPT_GENERATION') return gatewayTextProvider
   const configured = providerConfig[type as keyof typeof providerConfig]
   if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
+  if (type === 'VIDEO_GENERATION' && configured === 'protoface') return protofaceVideoProvider
   if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return imageGenerationProvider
   if (type === 'IMAGE_GENERATION' && configured === 'replicate') return replicateImageProvider
   if (type === 'CHARACTER_GENERATION' && configured === 'replicate') return characterImageProvider
