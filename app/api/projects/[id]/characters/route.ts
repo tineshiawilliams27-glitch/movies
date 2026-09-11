@@ -8,9 +8,9 @@ import { characters, projects } from '@/lib/db/schema'
 
 const characterSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  description: z.string().max(20000).default(''),
-  appearance: z.string().max(20000).default(''),
-  voice: z.string().max(20000).default(''),
+  description: z.string().max(4000).default(''),
+  appearance: z.string().max(4000).default(''),
+  voice: z.string().max(4000).default(''),
 })
 
 async function getUserId() {

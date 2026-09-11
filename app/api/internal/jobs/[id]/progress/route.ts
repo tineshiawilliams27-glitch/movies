@@ -9,7 +9,7 @@ const progressSchema = z.object({
   progress: z.number().int().min(0).max(100),
   stage: z.string().trim().min(1).max(120),
   error: z.string().trim().max(2000).optional(),
-  result: z.record(z.string(), z.unknown()).optional(),
+  result: z.record(z.string().max(120), z.unknown()).refine((value) => Object.keys(value).length <= 50, { message: 'Job result may contain at most 50 fields.' }).refine((value) => JSON.stringify(value).length <= 100000, { message: 'Job result is too large.' }).optional(),
 })
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
