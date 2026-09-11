@@ -45,7 +45,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { job, created } = await db.transaction(async (tx) => {
     const [existing] = await tx.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id), parsed.data.idempotencyKey ? eq(generationJobs.idempotencyKey, parsed.data.idempotencyKey) : sql`false`)).limit(1)
     if (existing) return { job: existing, created: false }
-    const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, idempotencyKey: parsed.data.idempotencyKey, payload: parsed.data.payload }).returning()
+    const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, idempotencyKey: parsed.data.idempotencyKey, payload: { ...parsed.data.payload, projectId: id, userId: session.user.id } }).returning()
     if (!createdJob) throw new Error('Generation job could not be created.')
     await tx.insert(generationOutbox).values({ jobId: createdJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdJob.id, type: parsed.data.type, payload: parsed.data.payload } })
     return { job: createdJob, created: true }

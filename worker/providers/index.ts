@@ -1,8 +1,13 @@
 import { getToken } from '@vercel/connect'
-import { put } from '@vercel/blob'
+import { get, put } from '@vercel/blob'
+import ffmpeg from 'fluent-ffmpeg'
+import ffmpegPath from 'ffmpeg-static'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { db } from '../../lib/db'
-import { scenes } from '../../lib/db/schema'
-import { and, eq } from 'drizzle-orm'
+import { mediaAssets, scenes, timelineItems } from '../../lib/db/schema'
+import { and, asc, eq } from 'drizzle-orm'
 
 export type ProviderContext = { jobId: string; payload: Record<string, unknown> }
 export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 'NOT_CONFIGURED' }
@@ -115,9 +120,37 @@ async function httpMediaProvider({ jobId, payload }: ProviderContext, endpoint: 
 const imageGenerationProvider: GenerationProvider = async (context) => imageEndpoint ? httpMediaProvider(context, imageEndpoint, 'IMAGE') : unavailableProvider('IMAGE_GENERATION (IMAGE_PROVIDER_URL)')(context)
 const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('AUDIO_GENERATION (AUDIO_PROVIDER_URL)')(context)
 const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
-  const manifest = { jobId, format: payload.format || 'mp4', resolution: payload.resolution || '1080p', frameRate: payload.frameRate || 24, aspectRatio: payload.aspectRatio || '16:9', createdAt: new Date().toISOString(), status: 'READY' }
-  const blob = await put(`film-exports/${jobId}.json`, JSON.stringify(manifest), { access: 'private', contentType: 'application/json', addRandomSuffix: false })
-  return { result: { provider: 'local-export', assetPathname: blob.pathname, manifest } }
+  if (!ffmpegPath) throw new Error('FFmpeg binary is unavailable in this runtime.')
+  const executablePath = ffmpegPath
+  const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
+  const userId = typeof payload.userId === 'string' ? payload.userId : ''
+  if (!projectId || !userId) throw new Error('Video export requires project and user context.')
+  const items = await db.select().from(timelineItems).where(and(eq(timelineItems.projectId, projectId), eq(timelineItems.userId, userId))).orderBy(asc(timelineItems.startSeconds), asc(timelineItems.id))
+  const videoItems = items.filter((item) => item.trackType === 'VIDEO' && item.content)
+  if (videoItems.length === 0) throw new Error('No video assets are available for export.')
+  const workdir = await mkdtemp(join(tmpdir(), 'film-export-'))
+  try {
+    const inputs: string[] = []
+    for (const [index, item] of videoItems.entries()) {
+      const asset = await get(item.content, { access: 'private' })
+      if (!asset) throw new Error(`Timeline asset ${item.label || index + 1} was not found.`)
+      const extension = item.content.endsWith('.mp4') ? 'mp4' : 'bin'
+      const inputPath = join(workdir, `input-${index}.${extension}`)
+      const buffer = Buffer.from(await new Response(asset.stream).arrayBuffer())
+      await writeFile(inputPath, buffer)
+      inputs.push(inputPath)
+    }
+    const outputPath = join(workdir, 'film.mp4')
+    await new Promise<void>((resolve, reject) => {
+      let command = ffmpeg().setFfmpegPath(executablePath)
+      for (const input of inputs) command = command.input(input)
+      command.outputOptions(['-map 0:v:0', '-c:v libx264', '-preset veryfast', '-pix_fmt yuv420p', '-movflags +faststart', '-r 24']).on('end', () => resolve()).on('error', reject).save(outputPath)
+    })
+    const blob = await put(`film-exports/${jobId}.mp4`, await (await import('node:fs/promises')).readFile(outputPath), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
+    const [media] = await db.insert(mediaAssets).values({ userId, projectId, kind: 'VIDEO_EXPORT', pathname: blob.pathname, contentType: 'video/mp4', metadata: { jobId, sourceCount: inputs.length } }).returning({ id: mediaAssets.id })
+    const manifest = { jobId, projectId, format: payload.format || 'mp4', resolution: payload.resolution || '1080p', frameRate: payload.frameRate || 24, aspectRatio: payload.aspectRatio || '16:9', createdAt: new Date().toISOString(), status: 'READY', assetPathname: blob.pathname, mediaId: media?.id, sourceCount: inputs.length }
+    return { result: { provider: 'ffmpeg', assetPathname: blob.pathname, mediaId: media?.id, manifest } }
+  } finally { await rm(workdir, { recursive: true, force: true }) }
 }
 
 export function providerFor(type: string): GenerationProvider {
