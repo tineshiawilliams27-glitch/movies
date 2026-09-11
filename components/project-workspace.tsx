@@ -133,9 +133,12 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     try {
       const controller = new AbortController()
       const timeout = window.setTimeout(() => controller.abort(), 120000)
-      const response = await fetch(`/api/projects/${projectId}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'pipeline', prompt }), signal: controller.signal })
+      const response = await fetch(`/api/projects/${projectId}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'SCRIPT_GENERATION', kind: 'pipeline', prompt }), signal: controller.signal })
       window.clearTimeout(timeout)
       if (response.ok) {
+        const queued = await response.json().catch(() => null) as { jobs?: Array<{ id: string; status?: string; progress?: number; stage?: string }> } | null
+        const firstJob = queued?.jobs?.[0]
+        if (firstJob?.id) setActiveJob({ id: firstJob.id, status: firstJob.status || 'QUEUED', progress: Number(firstJob.progress) || 0, stage: firstJob.stage || 'Pipeline queued' })
         const [nextFilm, nextScenes] = await Promise.all([
           fetch(`/api/projects/${projectId}/film`, { cache: 'no-store' }),
           fetch(`/api/projects/${projectId}/scenes`, { cache: 'no-store' }),
@@ -148,8 +151,8 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
         }
       }
       if (!response.ok) {
-        const data = await response.json().catch(() => null) as { error?: string } | null
-        setMessage(data?.error || 'Pipeline failed')
+        const data = await response.json().catch(() => null) as { error?: string; details?: string } | null
+        setMessage(data?.error || data?.details || 'Pipeline failed')
         return
       }
       setMessage('Pipeline generated and clips queued')
