@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Check, Download, Film, Loader2, Play, Settings2 } from 'lucide-react'
 import { WorkspaceNavigation } from '@/components/workspace-navigation'
 
-type ExportFormat = 'MP4' | 'WebM'
+type ExportFormat = 'MP4'
 type ExportSettings = { format: ExportFormat; resolution: string; frameRate: string; aspectRatio: string }
 
 export function ExportSuite({ projectId }: { projectId: string }) {
