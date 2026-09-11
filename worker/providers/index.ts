@@ -197,8 +197,9 @@ const protofaceImageProvider: GenerationProvider = async ({ jobId, payload, onPr
   const prompt = String(payload.prompt ?? 'Cinematic storyboard frame with consistent character identity and clear composition.')
   const created = await fetch(`${protofaceEndpoint.replace(/\/runs$/, '')}/run/${protofaceImageModel}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${protofaceApiKey}` }, body: JSON.stringify({ operation: 'image.generate', prompt, quality: String(payload.quality ?? 'high'), resolution: String(payload.resolution ?? '2k'), ...(typeof payload.referenceImageUrl === 'string' ? { image_url: payload.referenceImageUrl } : {}) }) })
   if (!created.ok) throw new Error(`Protoface image request failed with ${created.status}.`)
-  let operation = await created.json() as { id?: string; status?: string; image?: { url?: string; content_type?: string; file_name?: string }; error?: string }
-  if (!operation.id && !operation.image?.url) throw new Error('Protoface returned no image run ID or image URL.')
+  let operation = await created.json() as { id?: string; status?: string; image?: { url?: string; content_type?: string; file_name?: string }; outputs?: Array<{ role?: string; modality?: string; type?: string; asset_id?: string; file?: { url?: string; content_type?: string } }>; error?: string }
+  const getImageOutput = (value: typeof operation) => value.image?.url ? { url: value.image.url, contentType: value.image.content_type, fileName: value.image.file_name, assetId: undefined as string | undefined } : value.outputs?.find((output) => output.modality === 'image' && output.file?.url)?.file ? { url: value.outputs.find((output) => output.modality === 'image' && output.file?.url)?.file?.url as string, contentType: value.outputs.find((output) => output.modality === 'image' && output.file?.url)?.file?.content_type, fileName: undefined, assetId: value.outputs.find((output) => output.modality === 'image' && output.file?.url)?.asset_id } : null
+  if (!operation.id && !getImageOutput(operation)?.url) throw new Error('Protoface returned no image run ID or image URL.')
   for (let attempt = 0; operation.id && attempt < 90 && !['succeeded', 'completed', 'failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase()); attempt += 1) {
     await onProgress?.(Math.min(95, 10 + Math.round((attempt / 90) * 85)), operation.status === 'queued' ? 'Queued image with Protoface' : 'Generating image with Protoface')
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -207,14 +208,15 @@ const protofaceImageProvider: GenerationProvider = async ({ jobId, payload, onPr
     operation = await response.json()
   }
   if (['failed', 'error', 'cancelled'].includes(String(operation.status).toLowerCase())) throw new Error(operation.error || `Protoface image run ended with ${operation.status}.`)
-  const outputUrl = operation.image?.url
+  const imageOutput = getImageOutput(operation)
+  const outputUrl = imageOutput?.url
   if (!outputUrl) throw new Error('Protoface completed without an image URL.')
   const image = await fetch(outputUrl)
   if (!image.ok) throw new Error('Protoface returned an unreadable image.')
   await onProgress?.(96, 'Saving Protoface image')
-  const contentType = operation.image?.content_type || image.headers.get('content-type') || 'image/png'
+  const contentType = imageOutput?.contentType || image.headers.get('content-type') || 'image/png'
   const blob = await put(`storyboard-images/${jobId}.png`, await image.blob(), { access: 'private', contentType, addRandomSuffix: false })
-  const assetId = await persistGeneratedMedia(payload, blob.pathname, contentType, 'IMAGE_GENERATED', { provider: 'protoface', model: protofaceImageModel, operationId: operation.id, fileName: operation.image?.file_name, quality: payload.quality || 'high', resolution: payload.resolution || '2k' })
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, contentType, 'IMAGE_GENERATED', { provider: 'protoface', model: protofaceImageModel, operationId: operation.id, fileName: imageOutput?.fileName, upstreamAssetId: imageOutput?.assetId, quality: payload.quality || 'high', resolution: payload.resolution || '2k' })
   return { result: { provider: 'protoface', model: protofaceImageModel, operationId: operation.id, assetPathname: blob.pathname, assetId, kind: 'IMAGE' } }
 }
 
