@@ -57,8 +57,7 @@ async function processJobs() {
       await processJob(parsed.jobId, { ...(parsed.payload ?? {}), type: parsed.type ?? parsed.payload?.type }, parsed.type)
       await acknowledgeGenerationJob(String(queued))
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Malformed queue message.'
-      console.error('[v0] malformed queue message discarded', { message })
+      console.error('[worker] Invalid queue message', error)
       // A malformed payload cannot be retried safely because it has no job id.
       await acknowledgeGenerationJob(String(queued))
     }
