@@ -21,6 +21,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const owned = await db.select({ id: scenes.id }).from(scenes).where(and(eq(scenes.projectId, id), eq(scenes.userId, session.user.id), inArray(scenes.id, parsed.data.sceneIds)))
   if (owned.length !== parsed.data.sceneIds.length) return NextResponse.json({ error: 'One or more scenes were not found.' }, { status: 404 })
+  const projectScenes = await db.select({ id: scenes.id }).from(scenes).where(and(eq(scenes.projectId, id), eq(scenes.userId, session.user.id)))
+  if (projectScenes.length !== parsed.data.sceneIds.length || projectScenes.some(({ id: sceneId }) => !parsed.data.sceneIds.includes(sceneId))) return NextResponse.json({ error: 'Scene order must include every project scene.' }, { status: 400 })
   await db.transaction(async (tx) => { for (const [index, sceneId] of parsed.data.sceneIds.entries()) await tx.update(scenes).set({ sceneNumber: -(index + 1), updatedAt: new Date() }).where(and(eq(scenes.id, sceneId), eq(scenes.projectId, id), eq(scenes.userId, session.user.id))); for (const [index, sceneId] of parsed.data.sceneIds.entries()) await tx.update(scenes).set({ sceneNumber: index + 1, updatedAt: new Date() }).where(and(eq(scenes.id, sceneId), eq(scenes.projectId, id), eq(scenes.userId, session.user.id))) })
   return NextResponse.json({ ok: true })
 }
