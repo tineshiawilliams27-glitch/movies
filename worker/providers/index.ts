@@ -1,4 +1,6 @@
-import { getToken } from '@vercel/connect'
+import { getReplicateModelSchema, replicateHeaders, requireReplicateToken } from './replicate'
+import { getElevenLabsApiKey, elevenLabsHeaders } from './elevenlabs'
+import { localProviderName } from './local'
 import { get, put } from '@vercel/blob'
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegPath from 'ffmpeg-static'
@@ -13,7 +15,6 @@ export type ProviderContext = { jobId: string; payload: Record<string, unknown> 
 export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 'NOT_CONFIGURED' }
 export type GenerationProvider = (context: ProviderContext) => Promise<ProviderResult>
 
-const replicateConnector = 'api.replicate.com/film-studio-video-generation'
 const configured = (value: string | undefined, fallback: string) => (value ?? fallback).trim().toLowerCase()
 const videoProvider = configured(process.env.VIDEO_PROVIDER ?? process.env.VIDEO_PROVIDER_3, 'replicate')
 const imageProvider = configured(process.env.IMAGE_PROVIDER, 'replicate')
@@ -22,7 +23,7 @@ const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
 const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()
 const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
 const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
-const elevenLabsApiKey = (process.env.ELEVENLABS_API_KEY || process.env.API_KEY || '').trim()
+const elevenLabsApiKey = getElevenLabsApiKey()
 const elevenLabsVoiceId = (process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM').trim()
 const elevenLabsModelId = (process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2').trim()
 
@@ -31,8 +32,8 @@ const providerConfig = {
   IMAGE_GENERATION: imageProvider,
   AUDIO_GENERATION: voiceProvider,
   VOICE_GENERATION: voiceProvider,
-  TIMELINE: configured(process.env.TIMELINE_PROVIDER, 'local'),
-  VIDEO_EXPORT: configured(process.env.VIDEO_EXPORT_PROVIDER, 'local'),
+  TIMELINE: configured(process.env.TIMELINE_PROVIDER, localProviderName),
+  VIDEO_EXPORT: configured(process.env.VIDEO_EXPORT_PROVIDER, localProviderName),
 } as const
 
 export const gatewayTextProvider: GenerationProvider = async ({ payload }) => ({
@@ -86,13 +87,11 @@ async function persistGeneratedMedia(payload: Record<string, unknown>, pathname:
 
 async function replicateVideoProvider({ jobId, payload }: ProviderContext): Promise<ProviderResult> {
   if (!replicateModel) return { status: 'NOT_CONFIGURED', result: { code: 'VIDEO_PROVIDER_NOT_CONFIGURED', message: 'Set REPLICATE_VIDEO_MODEL to enable video generation.' } }
-  const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
+  const token = requireReplicateToken()
   const [owner, model] = replicateModel.split('/')
   if (!owner || !model) throw new Error('REPLICATE_VIDEO_MODEL must use owner/model format.')
-  const modelResponse = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}`, { headers: { Authorization: `Bearer ${token}` } })
-  if (!modelResponse.ok) throw new Error(`Unable to inspect Replicate video model ${replicateModel} (${modelResponse.status}).`)
-  const modelInfo = await modelResponse.json() as { latest_version?: { openapi_schema?: { components?: { schemas?: { Input?: { properties?: Record<string, unknown>; required?: string[] } } } } } }
-  const inputSchema = modelInfo.latest_version?.openapi_schema?.components?.schemas?.Input
+  const modelSchema = await getReplicateModelSchema(token, replicateModel)
+  const inputSchema = modelSchema.info.latest_version?.openapi_schema?.components?.schemas?.Input
   const properties = inputSchema?.properties ?? {}
   const input: Record<string, unknown> = { prompt: String(payload.prompt ?? 'Cinematic storyboard shot with natural movement and consistent visual identity.') }
   const duration = Math.min(10, Math.max(1, Number(payload.durationSeconds) || 4))
@@ -103,14 +102,14 @@ async function replicateVideoProvider({ jobId, payload }: ProviderContext): Prom
   if (unsupportedRequired.length > 0) throw new Error(`Replicate video model ${replicateModel} requires unsupported inputs: ${unsupportedRequired.join(', ')}.`)
   const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: replicateHeaders(token, true),
     body: JSON.stringify({ input }),
   })
   if (!created.ok) throw new Error(`Replicate prediction failed with ${created.status}.`)
   let prediction = await created.json() as { id: string; status: string; output?: string | string[]; error?: string }
   for (let attempt = 0; attempt < 60 && ['starting', 'processing'].includes(prediction.status); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5000))
-    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: { Authorization: `Bearer ${token}` } })
+    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: replicateHeaders(token) })
     if (!response.ok) throw new Error(`Replicate polling failed with ${response.status}.`)
     prediction = await response.json()
   }
@@ -144,12 +143,12 @@ async function httpMediaProvider({ jobId, payload }: ProviderContext, endpoint: 
 }
 
 const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) => {
-  const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
+  const token = requireReplicateToken()
   const [owner, model] = replicateImageModel.split('/')
   if (!owner || !model) throw new Error('REPLICATE_IMAGE_MODEL must use owner/model format.')
   const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: replicateHeaders(token, true),
     body: JSON.stringify({ input: {
       prompt: String(payload.prompt ?? 'Cinematic storyboard frame with consistent character identity and clear composition.'),
       aspect_ratio: String(payload.aspectRatio ?? '16:9'),
@@ -161,7 +160,7 @@ const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) =>
   let prediction = await created.json() as { id: string; status: string; output?: string | string[]; error?: string }
   for (let attempt = 0; attempt < 60 && ['starting', 'processing'].includes(prediction.status); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 2000))
-    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: { Authorization: `Bearer ${token}` } })
+    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: replicateHeaders(token) })
     if (!response.ok) throw new Error(`Replicate image polling failed with ${response.status}.`)
     prediction = await response.json()
   }
@@ -176,16 +175,16 @@ const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) =>
 }
 
 const characterImageProvider: GenerationProvider = async ({ jobId, payload }) => {
-  const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
+  const token = requireReplicateToken()
   const [owner, model] = replicateImageModel.split('/')
   if (!owner || !model) throw new Error('REPLICATE_IMAGE_MODEL must use owner/model format.')
   const prompt = String(payload.prompt ?? 'Photorealistic cinematic character portrait, natural skin texture, expressive eyes, realistic wardrobe, studio lighting, 85mm lens, no text, no watermark.')
-  const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ input: { prompt, aspect_ratio: '4:3', output_format: 'png', safety_tolerance: 2 } }) })
+  const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, { method: 'POST', headers: replicateHeaders(token, true), body: JSON.stringify({ input: { prompt, aspect_ratio: '4:3', output_format: 'png', safety_tolerance: 2 } }) })
   if (!created.ok) throw new Error(`Replicate character image request failed with ${created.status}.`)
   let prediction = await created.json() as { id: string; status: string; output?: string | string[]; error?: string }
   for (let attempt = 0; attempt < 60 && ['starting', 'processing'].includes(prediction.status); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 2000))
-    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: { Authorization: `Bearer ${token}` } })
+    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: replicateHeaders(token) })
     if (!response.ok) throw new Error(`Replicate character image polling failed with ${response.status}.`)
     prediction = await response.json()
   }
@@ -210,7 +209,7 @@ const elevenLabsAudioProvider: GenerationProvider = async ({ jobId, payload }) =
   if (!text) throw new Error('Voice generation requires dialogue text.')
   const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}`, {
     method: 'POST',
-    headers: { 'xi-api-key': elevenLabsApiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+    headers: elevenLabsHeaders(elevenLabsApiKey),
     body: JSON.stringify({ text, model_id: elevenLabsModelId, voice_settings: { stability: 0.48, similarity_boost: 0.78, style: 0.2, use_speaker_boost: true } }),
   })
   if (!response.ok) throw new Error(`ElevenLabs voice generation failed with ${response.status}.`)
