@@ -85,40 +85,49 @@ export function StudioDashboard({ persistedProjects = [], userName, userEmail }:
   async function createProject() {
     setCreateError('')
     const title = newTitle.trim() || 'Untitled production'
-    const response = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, format: 'New production', durationSeconds: 0, concept: '' }) })
-    if (!response.ok) {
-      const data = await response.json().catch(() => null) as { error?: string } | null
-      setCreateError(data?.error || 'Project could not be created. Please try again.')
-      return
-    }
-    const data = await response.json()
-    const project: Project = {
-      id: data.project.id,
-      title: data.project.title,
-      type: data.project.format,
-      duration: '00:00',
-      scenes: 0,
-      updated: 'Just now',
-      status: 'Draft',
-      image: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=900&q=85',
-    }
-    setProjects((current) => [project, ...current])
-    setNewTitle('')
-    setShowCreate(false)
-    setSaved(true)
-    window.setTimeout(() => setSaved(false), 2200)
+    try {
+      const response = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, format: 'New production', durationSeconds: 0, concept: '' }) })
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setCreateError(data?.error || 'Project could not be created. Please try again.')
+        return
+      }
+      const data = await response.json()
+      const project: Project = {
+        id: data.project.id,
+        title: data.project.title,
+        type: data.project.format,
+        duration: '00:00',
+        scenes: 0,
+        updated: 'Just now',
+        status: 'Draft',
+        image: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&w=900&q=85',
+      }
+      setProjects((current) => [project, ...current])
+      setNewTitle('')
+      setShowCreate(false)
+      setSaved(true)
+      window.setTimeout(() => setSaved(false), 2200)
+    } catch { setCreateError('Project could not be created. Check your connection and try again.') }
   }
 
   async function duplicateProject(project: Project) {
-    const response = await fetch(`/api/projects/${project.id}/duplicate`, { method: 'POST' })
-    if (!response.ok) return
-    const data = await response.json()
-    setProjects((current) => [{ ...project, id: data.project.id, title: data.project.title, updated: 'Just now', status: 'Draft' }, ...current])
+    try {
+      const response = await fetch(`/api/projects/${project.id}/duplicate`, { method: 'POST' })
+      if (!response.ok) { setCreateError('Project could not be duplicated. Please try again.'); return }
+      const data = await response.json()
+      setProjects((current) => [{ ...project, id: data.project.id, title: data.project.title, updated: 'Just now', status: 'Draft' }, ...current])
+      setSaved(true)
+      window.setTimeout(() => setSaved(false), 2200)
+    } catch { setCreateError('Project could not be duplicated. Check your connection and try again.') }
   }
 
   async function deleteProject(id: string) {
-    const response = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
-    if (response.ok) setProjects((current) => current.filter((project) => project.id !== id))
+    try {
+      const response = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
+      if (response.ok) { setProjects((current) => current.filter((project) => project.id !== id)); setSaved(true); window.setTimeout(() => setSaved(false), 2200) }
+      else setCreateError('Project could not be deleted. Please try again.')
+    } catch { setCreateError('Project could not be deleted. Check your connection and try again.') }
   }
 
   return (
