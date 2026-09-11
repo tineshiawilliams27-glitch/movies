@@ -36,12 +36,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const [project] = await db.select({ id: projects.id, title: projects.title, concept: projects.concept }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
 
-  const result = await generateText({
-    model: 'openai/gpt-5-mini',
-    system: 'You are a showrunner, screenwriter, cinematographer, and post-production supervisor. Create specific, production-ready material. Preserve character identity and visual continuity across every shot.',
-    prompt: `Generate a ${parsed.data.kind} for the film project “${project.title}”. Concept: ${project.concept}\n\nCreative brief: ${parsed.data.prompt}`,
-    output: parsed.data.kind === 'pipeline' ? Output.object({ schema: pipelineSchema }) : Output.object({ schema: z.object({ result: z.string() }) }),
-  })
+  let result
+  try {
+    result = await generateText({
+      model: 'openai/gpt-5-mini',
+      system: 'You are a showrunner, screenwriter, cinematographer, and post-production supervisor. Create specific, production-ready material. Preserve character identity and visual continuity across every shot.',
+      prompt: `Generate a ${parsed.data.kind} for the film project “${project.title}”. Concept: ${project.concept}\n\nCreative brief: ${parsed.data.prompt}`,
+      output: parsed.data.kind === 'pipeline' ? Output.object({ schema: pipelineSchema }) : Output.object({ schema: z.object({ result: z.string() }) }),
+    })
+  } catch (error) {
+    console.error('[v0] generation model failed', error)
+    return NextResponse.json({ error: 'Generation service is temporarily unavailable. Please try again.' }, { status: 502 })
+  }
 
   if (parsed.data.kind === 'pipeline') {
     const output = result.output as z.infer<typeof pipelineSchema>
