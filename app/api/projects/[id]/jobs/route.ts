@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
+import { generationJobTypeSchema } from '@/lib/generation/contracts'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
@@ -9,7 +10,7 @@ import { start } from 'workflow/api'
 import { processGenerationJob } from '@/workflows/generation'
 
 const createJobSchema = z.object({
-  type: z.enum(['STORY_GENERATION', 'IMAGE_GENERATION', 'CHARACTER_IMAGE_GENERATION', 'VIDEO_GENERATION', 'AUDIO_GENERATION', 'VOICE_GENERATION', 'VIDEO_RENDER', 'VIDEO_EXPORT']),
+  type: generationJobTypeSchema,
   sceneId: z.string().uuid().optional(),
   idempotencyKey: z.string().trim().min(1).max(200).optional(),
   payload: z.record(z.string().max(120), z.unknown()).refine((value) => Object.keys(value).length <= 100, { message: 'Job payload may contain at most 100 fields.' }).refine((value) => JSON.stringify(value).length <= 100000, { message: 'Job payload is too large.' }).default({}),

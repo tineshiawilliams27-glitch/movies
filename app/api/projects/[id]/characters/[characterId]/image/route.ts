@@ -23,7 +23,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const idempotencyKey = `character-image:${characterId}:${Buffer.from(prompt).toString('base64url').slice(0, 80)}`
     const [existing] = await db.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id), eq(generationJobs.idempotencyKey, idempotencyKey))).limit(1)
     if (existing) return NextResponse.json({ job: existing, deduplicated: true }, { status: 200 })
-    const [job] = await db.insert(generationJobs).values({ userId: session.user.id, projectId: id, type: 'CHARACTER_IMAGE_GENERATION', idempotencyKey, payload }).returning()
+    const [job] = await db.insert(generationJobs).values({ userId: session.user.id, projectId: id, type: 'CHARACTER_GENERATION', idempotencyKey, payload }).returning()
     if (!job) return NextResponse.json({ error: 'Character image job could not be created.' }, { status: 500 })
     await db.insert(generationOutbox).values({ jobId: job.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: job.id, type: job.type, payload } })
     const run = await start(processGenerationJob, [job.id, session.user.id, job.type, payload])

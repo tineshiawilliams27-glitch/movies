@@ -5,8 +5,7 @@ import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { generationJobs } from '@/lib/db/schema'
-import { start } from 'workflow/api'
-import { processGenerationJob } from '@/workflows/generation'
+import { enqueueJob } from '@/worker/queue'
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -18,8 +17,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (job.status !== 'DEAD_LETTER' && job.status !== 'FAILED') return NextResponse.json({ error: 'Only failed jobs can be replayed.' }, { status: 409 })
   const [replayed] = await db.update(generationJobs).set({ status: 'QUEUED', progress: 0, stage: 'Queued for replay', attempts: 0, error: null, updatedAt: new Date() }).where(and(eq(generationJobs.id, id), eq(generationJobs.userId, session.user.id))).returning()
   if (!replayed) return NextResponse.json({ error: 'Job could not be replayed.' }, { status: 500 })
-  const run = await start(processGenerationJob, [replayed.id, session.user.id, replayed.type, replayed.payload as Record<string, unknown>])
-  return NextResponse.json({ job: replayed, workflowRunId: run.runId })
+  await enqueueJob(replayed.id)
+  return NextResponse.json({ job: replayed, queued: true })
 }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {

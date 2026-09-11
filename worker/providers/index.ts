@@ -1,4 +1,6 @@
-import { getToken } from '@vercel/connect'
+import { getReplicateModelSchema, replicateHeaders, requireReplicateToken } from './replicate'
+import { getElevenLabsApiKey, elevenLabsHeaders } from './elevenlabs'
+import { localProviderName } from './local'
 import { get, put } from '@vercel/blob'
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegPath from 'ffmpeg-static'
@@ -7,13 +9,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { db } from '../../lib/db'
 import { filmCharacters, mediaAssets, scenes, timelineItems } from '../../lib/db/schema'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 
 export type ProviderContext = { jobId: string; payload: Record<string, unknown> }
 export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 'NOT_CONFIGURED' }
-export type GenerationProvider = (context: ProviderContext) => Promise<ProviderResult>
+export type GenerationProvider = (context: ProviderContext & { onProgress?: (progress: number, stage?: string) => Promise<void> }) => Promise<ProviderResult>
 
-const replicateConnector = 'api.replicate.com/film-studio-video-generation'
 const configured = (value: string | undefined, fallback: string) => (value ?? fallback).trim().toLowerCase()
 const videoProvider = configured(process.env.VIDEO_PROVIDER ?? process.env.VIDEO_PROVIDER_3, 'replicate')
 const imageProvider = configured(process.env.IMAGE_PROVIDER, 'replicate')
@@ -22,16 +23,16 @@ const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
 const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()
 const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
 const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
-const elevenLabsApiKey = (process.env.ELEVENLABS_API_KEY || process.env.API_KEY || '').trim()
+const elevenLabsApiKey = getElevenLabsApiKey()
 const elevenLabsVoiceId = (process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM').trim()
 const elevenLabsModelId = (process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2').trim()
 
 const providerConfig = {
   VIDEO_GENERATION: videoProvider,
   IMAGE_GENERATION: imageProvider,
-  AUDIO_GENERATION: voiceProvider,
   VOICE_GENERATION: voiceProvider,
-  VIDEO_EXPORT: configured(process.env.VIDEO_EXPORT_PROVIDER, 'local'),
+  TIMELINE_BUILD: configured(process.env.TIMELINE_PROVIDER, localProviderName),
+  VIDEO_EXPORT: configured(process.env.VIDEO_EXPORT_PROVIDER, localProviderName),
 } as const
 
 export const gatewayTextProvider: GenerationProvider = async ({ payload }) => ({
@@ -53,7 +54,7 @@ const sceneBreakdownProvider: GenerationProvider = async ({ payload }) => {
       current.description = `${String(current.description || '')}\n\n${String(shot.description || '')}`.trim()
       current.dialogue = `${String(current.dialogue || '')}\n${String(shot.dialogue || '')}`.trim()
       current.durationSeconds = Number(current.durationSeconds || 0) + Number(shot.durationSeconds || 0)
-    } else grouped.set(label, { title: typeof shot.title === 'string' ? shot.title : label, description: shot.description || '', dialogue: shot.dialogue || '', location: shot.location || label, durationSeconds: Number(shot.durationSeconds || 0), metadata: { source: 'SCENE_BREAKDOWN', shotNumbers: [shot.shotNumber] } })
+    } else grouped.set(label, { title: typeof shot.title === 'string' ? shot.title : label, description: shot.description || '', dialogue: shot.dialogue || '', location: shot.location || label, durationSeconds: Number(shot.durationSeconds || 0), metadata: { source: 'SCENE_GENERATION', shotNumbers: [shot.shotNumber] } })
   }
   const generatedScenes = Array.from(grouped.values())
   await db.transaction(async (tx) => {
@@ -79,29 +80,52 @@ async function persistGeneratedMedia(payload: Record<string, unknown>, pathname:
   const userId = typeof payload.userId === 'string' ? payload.userId : ''
   const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
   if (!userId || !projectId) throw new Error(`${kind} generation requires project and user context.`)
-  const [asset] = await db.insert(mediaAssets).values({ userId, projectId, kind, pathname, contentType, durationSeconds: typeof payload.durationSeconds === 'number' ? String(payload.durationSeconds) : undefined, metadata }).returning({ id: mediaAssets.id })
+  const [asset] = await db.insert(mediaAssets).values({ userId, projectId, kind, pathname, contentType, durationSeconds: typeof payload.durationSeconds === 'number' ? String(payload.durationSeconds) : undefined, metadata: { ...metadata, sourceJobId: typeof payload.jobId === 'string' ? payload.jobId : undefined, projectId, contentType } }).returning({ id: mediaAssets.id })
   return asset.id
 }
 
-async function replicateVideoProvider({ jobId, payload }: ProviderContext): Promise<ProviderResult> {
+async function replicateVideoProvider({ jobId, payload, onProgress }: ProviderContext & { onProgress?: (progress: number, stage?: string) => Promise<void> }): Promise<ProviderResult> {
   if (!replicateModel) return { status: 'NOT_CONFIGURED', result: { code: 'VIDEO_PROVIDER_NOT_CONFIGURED', message: 'Set REPLICATE_VIDEO_MODEL to enable video generation.' } }
-  const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
-  const input = {
-    prompt: String(payload.prompt ?? 'Cinematic storyboard shot with natural movement and consistent visual identity.'),
-    duration: Number(payload.durationSeconds ?? 4),
-  }
+  const token = requireReplicateToken()
   const [owner, model] = replicateModel.split('/')
   if (!owner || !model) throw new Error('REPLICATE_VIDEO_MODEL must use owner/model format.')
+  const modelSchema = await getReplicateModelSchema(token, replicateModel)
+  const inputSchema = modelSchema.info.latest_version?.openapi_schema?.components?.schemas?.Input
+  const properties = inputSchema?.properties ?? {}
+  const input: Record<string, unknown> = { prompt: String(payload.prompt ?? 'Cinematic storyboard shot with natural movement and consistent visual identity.') }
+  const referenceUrls: string[] = Array.isArray(payload.referenceImageUrls)
+    ? payload.referenceImageUrls.filter((value): value is string => typeof value === 'string' && value.startsWith('http'))
+    : Array.isArray(payload.characterReferences)
+      ? (await Promise.all(payload.characterReferences.map(async (reference): Promise<string | null> => {
+        if (!reference || typeof reference !== 'object' || !('referenceAssetId' in reference) || typeof reference.referenceAssetId !== 'string') return null
+        const [asset] = await db.select({ pathname: mediaAssets.pathname }).from(mediaAssets).where(and(eq(mediaAssets.id, reference.referenceAssetId), eq(mediaAssets.projectId, String(payload.projectId)), eq(mediaAssets.userId, String(payload.userId)))).limit(1)
+        if (!asset?.pathname) return null
+        const blob = await get(asset.pathname, { access: 'private' })
+        return blob && 'blob' in blob && typeof blob.blob.url === 'string' ? blob.blob.url : null
+      }))).filter((value): value is string => Boolean(value))
+      : []
+  if (referenceUrls.length > 0) {
+    if (Object.prototype.hasOwnProperty.call(properties, 'image')) input.image = referenceUrls[0]
+    else if (Object.prototype.hasOwnProperty.call(properties, 'image_url')) input.image_url = referenceUrls[0]
+    else if (Object.prototype.hasOwnProperty.call(properties, 'reference_images')) input.reference_images = referenceUrls
+  }
+  const duration = Math.min(10, Math.max(1, Number(payload.durationSeconds) || 4))
+  if (Object.prototype.hasOwnProperty.call(properties, 'duration')) input.duration = duration
+  else if (Object.prototype.hasOwnProperty.call(properties, 'duration_seconds')) input.duration_seconds = duration
+  else if ((inputSchema?.required ?? []).includes('duration')) throw new Error(`Replicate video model ${replicateModel} requires a duration input, but its schema is not supported.`)
+  const unsupportedRequired = (inputSchema?.required ?? []).filter((field) => !(field in input) && field !== 'image')
+  if (unsupportedRequired.length > 0) throw new Error(`Replicate video model ${replicateModel} requires unsupported inputs: ${unsupportedRequired.join(', ')}.`)
   const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: replicateHeaders(token, true),
     body: JSON.stringify({ input }),
   })
   if (!created.ok) throw new Error(`Replicate prediction failed with ${created.status}.`)
   let prediction = await created.json() as { id: string; status: string; output?: string | string[]; error?: string }
   for (let attempt = 0; attempt < 60 && ['starting', 'processing'].includes(prediction.status); attempt += 1) {
+    await onProgress?.(Math.min(95, 15 + Math.round((attempt / 60) * 80)), prediction.status === 'starting' ? 'Starting video provider' : 'Rendering video clip')
     await new Promise((resolve) => setTimeout(resolve, 5000))
-    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: { Authorization: `Bearer ${token}` } })
+    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: replicateHeaders(token) })
     if (!response.ok) throw new Error(`Replicate polling failed with ${response.status}.`)
     prediction = await response.json()
   }
@@ -118,10 +142,11 @@ export function unavailableProvider(name: string): GenerationProvider {
   return async () => ({ status: 'NOT_CONFIGURED', result: { code: 'PROVIDER_NOT_CONFIGURED', provider: name, message: `${name} provider is not configured.` } })
 }
 
-async function httpMediaProvider({ jobId, payload }: ProviderContext, endpoint: string, kind: 'IMAGE' | 'AUDIO'): Promise<ProviderResult> {
+async function httpMediaProvider({ jobId, payload, onProgress }: ProviderContext & { onProgress?: (progress: number, stage?: string) => Promise<void> }, endpoint: string, kind: 'IMAGE' | 'AUDIO'): Promise<ProviderResult> {
   const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, ...payload }) })
   if (!response.ok) throw new Error(`${kind} provider failed with ${response.status}.`)
-  const data = await response.json() as { url?: string; assetPathname?: string; mimeType?: string; durationSeconds?: number }
+  const data = await response.json() as { url?: string; assetPathname?: string; mimeType?: string; durationSeconds?: number; progress?: number; stage?: string }
+  if (typeof data.progress === 'number') await onProgress?.(Math.max(0, Math.min(100, data.progress)), data.stage)
   if (typeof data.assetPathname === 'string') {
     const assetId = await persistGeneratedMedia(payload, data.assetPathname, data.mimeType || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), kind === 'IMAGE' ? 'IMAGE_GENERATED' : 'AUDIO_GENERATED', { provider: endpoint })
     return { result: { provider: endpoint, assetPathname: data.assetPathname, assetId, kind } }
@@ -135,12 +160,12 @@ async function httpMediaProvider({ jobId, payload }: ProviderContext, endpoint: 
 }
 
 const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) => {
-  const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
+  const token = requireReplicateToken()
   const [owner, model] = replicateImageModel.split('/')
   if (!owner || !model) throw new Error('REPLICATE_IMAGE_MODEL must use owner/model format.')
   const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: replicateHeaders(token, true),
     body: JSON.stringify({ input: {
       prompt: String(payload.prompt ?? 'Cinematic storyboard frame with consistent character identity and clear composition.'),
       aspect_ratio: String(payload.aspectRatio ?? '16:9'),
@@ -152,7 +177,7 @@ const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) =>
   let prediction = await created.json() as { id: string; status: string; output?: string | string[]; error?: string }
   for (let attempt = 0; attempt < 60 && ['starting', 'processing'].includes(prediction.status); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 2000))
-    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: { Authorization: `Bearer ${token}` } })
+    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: replicateHeaders(token) })
     if (!response.ok) throw new Error(`Replicate image polling failed with ${response.status}.`)
     prediction = await response.json()
   }
@@ -167,16 +192,16 @@ const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) =>
 }
 
 const characterImageProvider: GenerationProvider = async ({ jobId, payload }) => {
-  const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
+  const token = requireReplicateToken()
   const [owner, model] = replicateImageModel.split('/')
   if (!owner || !model) throw new Error('REPLICATE_IMAGE_MODEL must use owner/model format.')
   const prompt = String(payload.prompt ?? 'Photorealistic cinematic character portrait, natural skin texture, expressive eyes, realistic wardrobe, studio lighting, 85mm lens, no text, no watermark.')
-  const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ input: { prompt, aspect_ratio: '4:3', output_format: 'png', safety_tolerance: 2 } }) })
+  const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, { method: 'POST', headers: replicateHeaders(token, true), body: JSON.stringify({ input: { prompt, aspect_ratio: '4:3', output_format: 'png', safety_tolerance: 2 } }) })
   if (!created.ok) throw new Error(`Replicate character image request failed with ${created.status}.`)
   let prediction = await created.json() as { id: string; status: string; output?: string | string[]; error?: string }
   for (let attempt = 0; attempt < 60 && ['starting', 'processing'].includes(prediction.status); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 2000))
-    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: { Authorization: `Bearer ${token}` } })
+    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: replicateHeaders(token) })
     if (!response.ok) throw new Error(`Replicate character image polling failed with ${response.status}.`)
     prediction = await response.json()
   }
@@ -201,7 +226,7 @@ const elevenLabsAudioProvider: GenerationProvider = async ({ jobId, payload }) =
   if (!text) throw new Error('Voice generation requires dialogue text.')
   const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}`, {
     method: 'POST',
-    headers: { 'xi-api-key': elevenLabsApiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+    headers: elevenLabsHeaders(elevenLabsApiKey),
     body: JSON.stringify({ text, model_id: elevenLabsModelId, voice_settings: { stability: 0.48, similarity_boost: 0.78, style: 0.2, use_speaker_boost: true } }),
   })
   if (!response.ok) throw new Error(`ElevenLabs voice generation failed with ${response.status}.`)
@@ -210,20 +235,58 @@ const elevenLabsAudioProvider: GenerationProvider = async ({ jobId, payload }) =
   return { result: { provider: 'elevenlabs', voiceId: elevenLabsVoiceId, modelId: elevenLabsModelId, assetPathname: blob.pathname, assetId, kind: 'AUDIO' } }
 }
 
-const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('AUDIO_GENERATION (AUDIO_PROVIDER_URL)')(context)
-const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
+const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('VOICE_GENERATION (AUDIO_PROVIDER_URL)')(context)
+const timelineProvider: GenerationProvider = async ({ jobId, payload }) => {
+  const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
+  const userId = typeof payload.userId === 'string' ? payload.userId : ''
+  const shotNumber = Number(payload.shotNumber)
+  if (!projectId || !userId || !Number.isFinite(shotNumber)) throw new Error('Timeline generation requires project, user, and shot context.')
+  const shotPrefix = Number.isFinite(shotNumber) ? String(shotNumber) : ''
+  const [asset] = await db.select({ id: mediaAssets.id, pathname: mediaAssets.pathname, contentType: mediaAssets.contentType }).from(mediaAssets).where(and(eq(mediaAssets.projectId, projectId), eq(mediaAssets.userId, userId), eq(mediaAssets.kind, 'VIDEO_CLIP'))).orderBy(desc(mediaAssets.createdAt)).limit(1)
+  if (!asset) throw new Error(`No generated video asset is available for shot ${shotNumber}.`)
+  return { result: { provider: 'timeline', assetId: asset.id, assetPathname: asset.pathname, contentType: asset.contentType, shotNumber, shotKey: shotPrefix, jobId } }
+}
+
+type RenderProfile = {
+  format: 'mp4'
+  width: number
+  height: number
+  fps: number
+  aspectRatio: '16:9' | '9:16' | '1:1'
+  codec: 'libx264'
+  audioCodec: 'aac'
+}
+
+function resolveRenderProfile(payload: Record<string, unknown>): RenderProfile {
+  const resolutions: Record<string, [number, number]> = {
+    '1920 × 1080': [1920, 1080],
+    '3840 × 2160': [3840, 2160],
+    '1280 × 720': [1280, 720],
+  }
+  const requestedResolution = typeof payload.resolution === 'string' ? payload.resolution : '1920 × 1080'
+  const [baseWidth, baseHeight] = resolutions[requestedResolution] ?? resolutions['1920 × 1080']
+  const aspectRatio = payload.aspectRatio === '9:16' || payload.aspectRatio === '1:1' ? payload.aspectRatio : '16:9'
+  const dimensions = aspectRatio === '9:16' ? [baseHeight, baseWidth] : aspectRatio === '1:1' ? [Math.min(baseWidth, baseHeight), Math.min(baseWidth, baseHeight)] : [baseWidth, baseHeight]
+  const fpsValue = Number.parseInt(String(payload.frameRate ?? '24'), 10)
+  const fps = [24, 30, 60].includes(fpsValue) ? fpsValue : 24
+  return { format: 'mp4', width: dimensions[0], height: dimensions[1], fps, aspectRatio, codec: 'libx264', audioCodec: 'aac' }
+}
+
+const videoExportProvider: GenerationProvider = async ({ jobId, payload, onProgress }) => {
   if (!ffmpegPath) throw new Error('FFmpeg binary is unavailable in this runtime.')
   const executablePath = ffmpegPath
   const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
   const userId = typeof payload.userId === 'string' ? payload.userId : ''
   if (!projectId || !userId) throw new Error('Video export requires project and user context.')
   const items = await db.select().from(timelineItems).where(and(eq(timelineItems.projectId, projectId), eq(timelineItems.userId, userId))).orderBy(asc(timelineItems.startSeconds), asc(timelineItems.id))
-  const videoItems = items.filter((item) => item.trackType === 'VIDEO' && item.content)
-  if (videoItems.length === 0) throw new Error('No video assets are available for export.')
-  const workdir = await mkdtemp(join(tmpdir(), 'film-export-'))
-  try {
-    const inputs: string[] = []
-    for (const [index, item] of videoItems.entries()) {
+    const videoItems = items.filter((item) => item.trackType === 'VIDEO' && item.content)
+    const audioItems = items.filter((item) => ['AUDIO', 'VOICE', 'MUSIC', 'SFX', 'AMBIENCE'].includes(item.trackType) && item.content)
+    if (videoItems.length === 0) throw new Error('No video assets are available for export.')
+    const workdir = await mkdtemp(join(tmpdir(), 'film-export-'))
+    try {
+      const inputs: string[] = []
+      const audioInputs: Array<{ path: string; startSeconds: number; durationSeconds: number }> = []
+      for (const [index, item] of videoItems.entries()) {
       const [linkedAsset] = item.assetId ? await db.select({ pathname: mediaAssets.pathname }).from(mediaAssets).where(and(eq(mediaAssets.id, item.assetId), eq(mediaAssets.projectId, projectId), eq(mediaAssets.userId, userId))).limit(1) : []
       const pathname = linkedAsset?.pathname ?? item.content
       const asset = await get(pathname, { access: 'private' })
@@ -234,30 +297,57 @@ const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
       await writeFile(inputPath, buffer)
       inputs.push(inputPath)
     }
-    const outputPath = join(workdir, 'film.mp4')
-    await new Promise<void>((resolve, reject) => {
-      let command = ffmpeg().setFfmpegPath(executablePath)
-      for (const input of inputs) command = command.input(input)
-      command.outputOptions(['-map 0:v:0', '-c:v libx264', '-preset veryfast', '-pix_fmt yuv420p', '-movflags +faststart', '-r 24']).on('end', () => resolve()).on('error', reject).save(outputPath)
-    })
+      for (const [index, item] of audioItems.entries()) {
+        const [linkedAsset] = item.assetId ? await db.select({ pathname: mediaAssets.pathname }).from(mediaAssets).where(and(eq(mediaAssets.id, item.assetId), eq(mediaAssets.projectId, projectId), eq(mediaAssets.userId, userId))).limit(1) : []
+        const pathname = linkedAsset?.pathname ?? item.content
+        const asset = await get(pathname, { access: 'private' })
+        if (!asset) throw new Error(`Timeline audio asset ${item.label || index + 1} was not found.`)
+        const inputPath = join(workdir, `audio-${index}.bin`)
+        await writeFile(inputPath, Buffer.from(await new Response(asset.stream).arrayBuffer()))
+        audioInputs.push({ path: inputPath, startSeconds: Math.max(0, Number(item.startSeconds) || 0), durationSeconds: Math.max(0.1, Number(item.durationSeconds) || 1) })
+      }
+      const profile = resolveRenderProfile(payload)
+      await onProgress?.(10, `Preparing ${profile.width} × ${profile.height} ${profile.fps}fps render`)
+      const outputPath = join(workdir, 'film.mp4')
+      await new Promise<void>((resolve, reject) => {
+        const videoFilters = inputs.map((_, index) => `[${index}:v]scale=${profile.width}:${profile.height}:force_original_aspect_ratio=decrease,pad=${profile.width}:${profile.height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${profile.fps},format=yuv420p,setpts=PTS-STARTPTS[v${index}]`).join(';')
+        const concatInputs = inputs.map((_, index) => `[v${index}]`).join('')
+        const filterParts = [`${videoFilters};${concatInputs}concat=n=${inputs.length}:v=1:a=0[vout]`]
+        const audioOffset = inputs.length
+        if (audioInputs.length > 0) {
+          const audioFilters = audioInputs.map((audio, index) => `[${audioOffset + index}:a]aresample=48000,adelay=${Math.round(audio.startSeconds * 1000)}|${Math.round(audio.startSeconds * 1000)},atrim=duration=${audio.durationSeconds},asetpts=PTS-STARTPTS[a${index}]`).join(';')
+          const audioLabels = audioInputs.map((_, index) => `[a${index}]`).join('')
+          filterParts.push(`${audioFilters};${audioLabels}amix=inputs=${audioInputs.length}:duration=longest:dropout_transition=2,alimiter=limit=0.95[aout]`)
+        } else {
+          filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=48000[aout]`)
+        }
+        const filterComplex = filterParts.join(';')
+        let command = ffmpeg().setFfmpegPath(executablePath)
+        for (const input of inputs) command = command.input(input)
+        for (const audio of audioInputs) command = command.input(audio.path)
+        if (audioInputs.length === 0) command = command.input('anullsrc=channel_layout=stereo:sample_rate=48000').inputOptions(['-f', 'lavfi'])
+        command.outputOptions(['-filter_complex', filterComplex, '-map', '[vout]', '-map', '[aout]', '-r', String(profile.fps), '-c:v', profile.codec, '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', profile.audioCodec, '-b:a', '192k', '-ar', '48000', '-shortest', '-movflags', '+faststart']).on('end', () => resolve()).on('error', reject).save(outputPath)
+      })
+    await onProgress?.(90, 'Uploading rendered MP4')
     const blob = await put(`film-exports/${jobId}.mp4`, await (await import('node:fs/promises')).readFile(outputPath), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
-    const [media] = await db.insert(mediaAssets).values({ userId, projectId, kind: 'VIDEO_EXPORT', pathname: blob.pathname, contentType: 'video/mp4', metadata: { jobId, sourceCount: inputs.length } }).returning({ id: mediaAssets.id })
-    const manifest = { jobId, projectId, format: payload.format || 'mp4', resolution: payload.resolution || '1080p', frameRate: payload.frameRate || 24, aspectRatio: payload.aspectRatio || '16:9', createdAt: new Date().toISOString(), status: 'READY', assetPathname: blob.pathname, mediaId: media?.id, sourceCount: inputs.length }
+    const [media] = await db.insert(mediaAssets).values({ userId, projectId, kind: 'VIDEO_EXPORT', pathname: blob.pathname, contentType: 'video/mp4', metadata: { jobId, sourceCount: inputs.length, renderProfile: profile } }).returning({ id: mediaAssets.id })
+    const manifest = { jobId, projectId, format: profile.format, resolution: `${profile.width} × ${profile.height}`, frameRate: `${profile.fps} fps`, aspectRatio: profile.aspectRatio, createdAt: new Date().toISOString(), status: 'READY', assetPathname: blob.pathname, mediaId: media?.id, sourceCount: inputs.length }
     return { result: { provider: 'ffmpeg', assetPathname: blob.pathname, mediaId: media?.id, manifest } }
   } finally { await rm(workdir, { recursive: true, force: true }) }
 }
 
 export function providerFor(type: string): GenerationProvider {
-  if (type === 'SCENE_BREAKDOWN') return sceneBreakdownProvider
-  if (type === 'PIPELINE_GENERATION' || type === 'TEXT_GENERATION') return gatewayTextProvider
+  if (type === 'SCENE_GENERATION') return sceneBreakdownProvider
+  if (type === 'SCRIPT_GENERATION') return gatewayTextProvider
   const configured = providerConfig[type as keyof typeof providerConfig]
   if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
   if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return imageGenerationProvider
   if (type === 'IMAGE_GENERATION' && configured === 'replicate') return replicateImageProvider
-  if (type === 'CHARACTER_IMAGE_GENERATION' && configured === 'replicate') return characterImageProvider
-  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http' && audioEndpoint) return audioGenerationProvider
-  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return elevenLabsAudioProvider
-  if ((type === 'TIMELINE' || type === 'VIDEO_EXPORT') && configured === 'local') return videoExportProvider
+  if (type === 'CHARACTER_GENERATION' && configured === 'replicate') return characterImageProvider
+  if (type === 'VOICE_GENERATION' && configured === 'http' && audioEndpoint) return audioGenerationProvider
+  if (type === 'VOICE_GENERATION' && configured === 'elevenlabs') return elevenLabsAudioProvider
+  if (type === 'TIMELINE_BUILD' && configured === 'local') return timelineProvider
+  if (type === 'VIDEO_EXPORT' && configured === 'local') return videoExportProvider
   return unavailableProvider(`${type} (${configured || 'unknown'})`)
 }
 
