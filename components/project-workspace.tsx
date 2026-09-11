@@ -92,20 +92,22 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     const prompt = window.prompt('Describe the film, tone, and audience.', 'A tense, intimate short film about memory and the cost of telling the truth.')
     if (!prompt) return
     setMessage('Generating story, characters, screenplay, and storyboard...')
-    const response = await fetch(`/api/projects/${projectId}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'pipeline', prompt }) })
-    if (response.ok) {
-      const [nextFilm, nextScenes] = await Promise.all([
-        fetch(`/api/projects/${projectId}/film`, { cache: 'no-store' }),
-        fetch(`/api/projects/${projectId}/scenes`, { cache: 'no-store' }),
-      ])
-      if (nextFilm.ok) setFilm(await nextFilm.json())
-      if (nextScenes.ok) {
-        const data = await nextScenes.json()
-        setScenes(data.scenes)
-        setActiveId((current) => current ?? data.scenes[0]?.id ?? null)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'pipeline', prompt }) })
+      if (response.ok) {
+        const [nextFilm, nextScenes] = await Promise.all([
+          fetch(`/api/projects/${projectId}/film`, { cache: 'no-store' }),
+          fetch(`/api/projects/${projectId}/scenes`, { cache: 'no-store' }),
+        ])
+        if (nextFilm.ok) setFilm(await nextFilm.json())
+        if (nextScenes.ok) {
+          const data = await nextScenes.json()
+          setScenes(data.scenes ?? [])
+          setActiveId((current) => current ?? data.scenes?.[0]?.id ?? null)
+        }
       }
-    }
-    setMessage(response.ok ? 'Pipeline generated and clips queued' : 'Pipeline failed')
+      setMessage(response.ok ? 'Pipeline generated and clips queued' : 'Pipeline failed')
+    } catch { setMessage('Pipeline failed. Check your connection and try again.') }
     window.setTimeout(() => setMessage(''), 3200)
   }
 
