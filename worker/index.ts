@@ -9,6 +9,7 @@ const appUrl = process.env.APP_URL?.replace(/\/$/, '')
 const workerToken = process.env.WORKER_TOKEN
 const maxAttempts = Math.max(1, Number(process.env.WORKER_MAX_ATTEMPTS || 3))
 const retryDelayMs = Math.max(1000, Number(process.env.WORKER_RETRY_DELAY_MS || 5000))
+const workerId = `${process.env.HOSTNAME || 'worker'}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
 type Progress = { status: 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'DEAD_LETTER'; progress: number; stage: string; error?: string; result?: Record<string, unknown> }
 type QueuedJob = { jobId: string; type?: string; payload?: Record<string, unknown> }
 
@@ -50,15 +51,14 @@ async function processJob(jobId: string, queuedPayload: Record<string, unknown> 
 async function processJobs() {
   if (!redis) return
   while (true) {
-    const queued = await claimGenerationJob()
+    const queued = await claimGenerationJob(workerId)
     if (!queued) { await new Promise((resolve) => setTimeout(resolve, 2000)); continue }
     try {
       const parsed = JSON.parse(String(queued)) as QueuedJob
       await processJob(parsed.jobId, { ...(parsed.payload ?? {}), type: parsed.type ?? parsed.payload?.type }, parsed.type)
       await acknowledgeGenerationJob(String(queued))
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Malformed queue message.'
-      console.error('[v0] malformed queue message discarded', { message })
+      console.error('[worker] Invalid queue message', error)
       // A malformed payload cannot be retried safely because it has no job id.
       await acknowledgeGenerationJob(String(queued))
     }
@@ -73,7 +73,7 @@ const server = createServer((request, response) => {
 })
 
 server.listen(port, () => {
-  console.log(`GPU worker listening on ${port}`)
-  void requeueProcessingJobs().catch((error) => console.error('[v0] worker recovery failed', error))
+  console.log(`Generation worker listening on ${port}`)
+  void requeueProcessingJobs(workerId).catch((error) => console.error('[v0] worker recovery failed', error))
   void processJobs()
 })

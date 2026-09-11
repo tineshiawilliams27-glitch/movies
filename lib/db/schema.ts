@@ -149,8 +149,8 @@ export const generationRuns = pgTable('generation_runs', {
 
 export const filmBibles = pgTable('film_bibles', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
-  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }).unique(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
   version: integer('version').notNull().default(1),
   logline: text('logline').notNull().default(''),
@@ -163,7 +163,7 @@ export const filmBibles = pgTable('film_bibles', {
   styleBible: jsonb('styleBible').notNull().default({}),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-})
+}, (table) => ({ projectIdx: index('film_bibles_project_idx').on(table.projectId) }))
 
 export const filmCharacters = pgTable('film_characters', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -177,10 +177,10 @@ export const filmCharacters = pgTable('film_characters', {
   description: text('description').notNull().default(''),
   appearance: text('appearance').notNull().default(''),
   voiceIdentity: jsonb('voiceIdentity').notNull().default({}),
-  referenceAssetId: uuid('referenceAssetId'),
+  referenceAssetId: uuid('referenceAssetId').references(() => mediaAssets.id, { onDelete: 'set null' }),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectCharacterKeyUnique: uniqueIndex('film_characters_project_key_unique').on(table.projectId, table.stableKey) }))
+}, (table) => ({ projectIdx: index('film_characters_project_idx').on(table.projectId), projectCharacterKeyVersionUnique: uniqueIndex('film_characters_project_key_version_unique').on(table.projectId, table.stableKey, table.version) }))
 
 export const storyboardShots = pgTable('storyboard_shots', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -201,24 +201,26 @@ export const storyboardShots = pgTable('storyboard_shots', {
   durationSeconds: numeric('durationSeconds').notNull().default('4'),
   continuityNotes: text('continuityNotes').notNull().default(''),
   framePrompt: text('framePrompt').notNull().default(''),
-  frameAssetId: uuid('frameAssetId'),
-  clipAssetId: uuid('clipAssetId'),
+  frameAssetId: uuid('frameAssetId').references(() => mediaAssets.id, { onDelete: 'set null' }),
+  clipAssetId: uuid('clipAssetId').references(() => mediaAssets.id, { onDelete: 'set null' }),
   status: text('status').notNull().default('PLANNED'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectShotUnique: uniqueIndex('storyboard_shots_project_number_unique').on(table.projectId, table.shotNumber) }))
+}, (table) => ({ projectIdx: index('storyboard_shots_project_idx').on(table.projectId), projectShotVersionUnique: uniqueIndex('storyboard_shots_project_number_version_unique').on(table.projectId, table.shotNumber, table.version) }))
 
 export const timelineItems = pgTable('timeline_items', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
+  version: integer('version').notNull().default(1),
   trackType: text('trackType').notNull(),
   label: text('label').notNull().default(''),
   startSeconds: numeric('startSeconds').notNull().default('0'),
   durationSeconds: numeric('durationSeconds').notNull().default('0'),
-  assetId: uuid('assetId'),
+  assetId: uuid('assetId').references(() => mediaAssets.id, { onDelete: 'set null' }),
   content: text('content').notNull().default(''),
   metadata: jsonb('metadata').notNull().default({}),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectTrackStartIdx: index('timeline_items_project_track_start_idx').on(table.projectId, table.trackType, table.startSeconds, table.id) }))
+}, (table) => ({ projectIdx: index('timeline_items_project_idx').on(table.projectId), projectTrackStartIdx: index('timeline_items_project_track_start_idx').on(table.projectId, table.trackType, table.startSeconds, table.id) }))
