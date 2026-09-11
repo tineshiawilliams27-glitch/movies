@@ -63,6 +63,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       for (const shot of output.shots) await tx.insert(storyboardShots).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt })
       const jobs: Array<{ id: string; type: string; payload: Record<string, unknown> }> = []
       const shotVideoJobIds: string[] = []
+      const styleBible = output.styleBible
+      const projectCharacters = await tx.select({ stableKey: filmCharacters.stableKey, name: filmCharacters.name, role: filmCharacters.role, description: filmCharacters.description, appearance: filmCharacters.appearance, referenceAssetId: filmCharacters.referenceAssetId }).from(filmCharacters).where(and(eq(filmCharacters.projectId, id), eq(filmCharacters.userId, session.user.id), eq(filmCharacters.generationRunId, createdRun.id)))
+      let previousShotContext = 'No previous shot; establish the continuity baseline.'
       for (const shot of output.shots) {
         const stageJobs = [
           { type: 'IMAGE_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: `${shot.framePrompt}\n\nScene: ${shot.sceneLabel}. Shot type: ${shot.shotType}. Camera movement: ${shot.cameraMovement}. Lighting: ${shot.lighting}. Mood: ${shot.mood}. Preserve character and location continuity across the film.`, durationSeconds: shot.durationSeconds, aspectRatio: '16:9', stage: 'visual' } },
@@ -78,7 +81,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             dependencyIds.push(createdStageJob.id)
           }
         }
-        const videoPayload = { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dependsOnJobIds: dependencyIds }
+        const sceneContext = { label: shot.sceneLabel, description: shot.description }
+        const referencedCharacters = projectCharacters.filter((character) => new RegExp(`\\b${character.name.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'i').test(`${shot.description} ${shot.framePrompt} ${shot.dialogue}`))
+        const continuityPrompt = [
+          'STYLE BIBLE:', JSON.stringify(styleBible),
+          'CHARACTER IDENTITIES:', JSON.stringify(referencedCharacters.length > 0 ? referencedCharacters : projectCharacters.slice(0, 8)),
+          'LOCATION AND SCENE CONTEXT:', JSON.stringify(sceneContext ?? { label: shot.sceneLabel, description: shot.description }),
+          'PREVIOUS SHOT CONTEXT:', previousShotContext,
+          'SHOT DIRECTION:', shot.framePrompt,
+          `Camera: ${shot.shotType}; ${shot.cameraMovement}. Lighting: ${shot.lighting}. Mood: ${shot.mood}.`,
+          'CONTINUITY RULE: Preserve identity, wardrobe, proportions, palette, lighting logic, spatial geography, and motion direction unless this shot explicitly changes them.',
+        ].join('\\n\\n')
+        const videoPayload = { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: continuityPrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, styleBible, characterReferences: referencedCharacters, sceneContext, previousShotContext, dependsOnJobIds: dependencyIds }
+        previousShotContext = `Shot ${shot.shotNumber}: ${shot.description}. Continuity notes: ${shot.continuityNotes}. End state should flow naturally into the next shot.`
         const [createdVideoJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: 'VIDEO_GENERATION', payload: videoPayload, idempotencyKey: `video:${createdRun.version}:${shot.shotNumber}:${shot.framePrompt}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
         if (createdVideoJob) {
           await tx.insert(generationOutbox).values({ jobId: createdVideoJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdVideoJob.id, type: 'VIDEO_GENERATION', payload: videoPayload } })

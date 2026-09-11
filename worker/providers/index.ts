@@ -93,6 +93,22 @@ async function replicateVideoProvider({ jobId, payload }: ProviderContext): Prom
   const inputSchema = modelSchema.info.latest_version?.openapi_schema?.components?.schemas?.Input
   const properties = inputSchema?.properties ?? {}
   const input: Record<string, unknown> = { prompt: String(payload.prompt ?? 'Cinematic storyboard shot with natural movement and consistent visual identity.') }
+  const referenceUrls: string[] = Array.isArray(payload.referenceImageUrls)
+    ? payload.referenceImageUrls.filter((value): value is string => typeof value === 'string' && value.startsWith('http'))
+    : Array.isArray(payload.characterReferences)
+      ? (await Promise.all(payload.characterReferences.map(async (reference): Promise<string | null> => {
+        if (!reference || typeof reference !== 'object' || !('referenceAssetId' in reference) || typeof reference.referenceAssetId !== 'string') return null
+        const [asset] = await db.select({ pathname: mediaAssets.pathname }).from(mediaAssets).where(and(eq(mediaAssets.id, reference.referenceAssetId), eq(mediaAssets.projectId, String(payload.projectId)), eq(mediaAssets.userId, String(payload.userId)))).limit(1)
+        if (!asset?.pathname) return null
+        const blob = await get(asset.pathname, { access: 'private' })
+        return blob && 'blob' in blob && typeof blob.blob.url === 'string' ? blob.blob.url : null
+      }))).filter((value): value is string => Boolean(value))
+      : []
+  if (referenceUrls.length > 0) {
+    if (Object.prototype.hasOwnProperty.call(properties, 'image')) input.image = referenceUrls[0]
+    else if (Object.prototype.hasOwnProperty.call(properties, 'image_url')) input.image_url = referenceUrls[0]
+    else if (Object.prototype.hasOwnProperty.call(properties, 'reference_images')) input.reference_images = referenceUrls
+  }
   const duration = Math.min(10, Math.max(1, Number(payload.durationSeconds) || 4))
   if (Object.prototype.hasOwnProperty.call(properties, 'duration')) input.duration = duration
   else if (Object.prototype.hasOwnProperty.call(properties, 'duration_seconds')) input.duration_seconds = duration
