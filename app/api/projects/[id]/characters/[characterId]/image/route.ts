@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server'
 import { headers } from 'next/headers'
-import { fal } from '@fal-ai/client'
 import { put } from '@vercel/blob'
 import { eq, and } from 'drizzle-orm'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { characters, mediaAssets, projects } from '@/lib/db/schema'
-
-fal.config({ credentials: process.env.FAL_KEY })
 
 export async function POST(request: Request, context: { params: Promise<{ id: string; characterId: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -21,13 +18,26 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const prompt = body.prompt?.trim() || `Photorealistic cinematic character portrait for a film. Name: ${record.character.name}. Description: ${record.character.description}. Appearance: ${record.character.appearance}. Voice and personality: ${record.character.voice}. Natural skin texture, expressive eyes, realistic wardrobe, studio portrait lighting, 85mm lens, shallow depth of field, no text, no watermark.`
 
   try {
-    const result = await fal.subscribe('fal-ai/flux/dev', { input: { prompt, image_size: 'portrait_4_3', num_images: 1, enable_safety_checker: true } })
-    const imageUrl = result.data?.images?.[0]?.url
-    if (!imageUrl) throw new Error('Image generation returned no image')
+    const token = process.env.REPLICATE_API_TOKEN
+    if (!token) return NextResponse.json({ error: 'Image generation is not configured.' }, { status: 503 })
+    const model = process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev'
+    const [owner, version] = model.split('/')
+    if (!owner || !version) throw new Error('REPLICATE_IMAGE_MODEL must use owner/model format.')
+    const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${version}/predictions`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ input: { prompt, aspect_ratio: '4:3', output_format: 'png', safety_tolerance: 2 } }) })
+    if (!created.ok) throw new Error(`Replicate image request failed with ${created.status}`)
+    let prediction = await created.json() as { id: string; status: string; output?: string | string[]; error?: string }
+    for (let attempt = 0; attempt < 60 && ['starting', 'processing'].includes(prediction.status); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!response.ok) throw new Error(`Replicate image polling failed with ${response.status}`)
+      prediction = await response.json()
+    }
+    if (prediction.status !== 'succeeded' || !prediction.output) throw new Error(prediction.error || `Replicate ended with ${prediction.status}`)
+    const imageUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output
     const imageResponse = await fetch(imageUrl)
     if (!imageResponse.ok) throw new Error('Generated image could not be downloaded')
     const blob = await put(`projects/${id}/characters/${characterId}/${crypto.randomUUID()}.png`, await imageResponse.blob(), { access: 'public', contentType: 'image/png', addRandomSuffix: false })
-    const [media] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, kind: 'CHARACTER_REFERENCE', pathname: blob.url, contentType: 'image/png', metadata: { characterId, prompt, source: 'fal-ai/flux/dev' } }).returning()
+    const [media] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, kind: 'CHARACTER_REFERENCE', pathname: blob.url, contentType: 'image/png', metadata: { characterId, prompt, source: `replicate/${model}` } }).returning()
     return NextResponse.json({ imageUrl: blob.url, media })
   } catch (error) {
     console.error('[v0] character image generation failed', error)
