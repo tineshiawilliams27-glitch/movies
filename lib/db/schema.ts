@@ -102,14 +102,14 @@ export const mediaAssets = pgTable('media_assets', {
   sourceId: uuid('sourceId'),
   version: integer('version').notNull().default(1),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectAssetIdx: index('media_assets_project_created_idx').on(table.projectId, table.createdAt) }))
+}, (table) => ({ projectAssetIdx: index('media_assets_project_created_idx').on(table.projectId, table.createdAt), sourceVersionIdx: index('media_assets_source_version_idx').on(table.sourceId, table.version) }))
 
 export const generationJobs = pgTable('generation_jobs', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   sceneId: uuid('sceneId').references(() => scenes.id, { onDelete: 'set null' }),
-  generationRunId: uuid('generationRunId'),
+  generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
   type: text('type').notNull(),
   status: text('status').notNull().default('QUEUED'),
   progress: integer('progress').notNull().default(0),
@@ -121,7 +121,7 @@ export const generationJobs = pgTable('generation_jobs', {
   result: jsonb('result'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({ projectStatusIdx: index('generation_jobs_project_status_idx').on(table.projectId, table.status, table.createdAt), projectIdempotencyUnique: uniqueIndex('generation_jobs_project_idempotency_unique').on(table.projectId, table.idempotencyKey).where(sql`"idempotencyKey" IS NOT NULL`) }))
+}, (table) => ({ projectStatusIdx: index('generation_jobs_project_status_idx').on(table.projectId, table.status, table.createdAt), projectIdempotencyUnique: uniqueIndex('generation_jobs_project_idempotency_unique').on(table.projectId, table.idempotencyKey).where(sql`"idempotencyKey" IS NOT NULL`), generationRunIdx: index('generation_jobs_generation_run_idx').on(table.generationRunId) }))
 
 export const generationOutbox = pgTable('generation_outbox', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -139,7 +139,7 @@ export const generationOutbox = pgTable('generation_outbox', {
 
 export const generationRuns = pgTable('generation_runs', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   version: integer('version').notNull(),
   status: text('status').notNull().default('ACTIVE'),
@@ -151,7 +151,7 @@ export const filmBibles = pgTable('film_bibles', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: text('userId').notNull(),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }).unique(),
-  generationRunId: uuid('generationRunId'),
+  generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
   version: integer('version').notNull().default(1),
   logline: text('logline').notNull().default(''),
   premise: text('premise').notNull().default(''),
@@ -167,9 +167,9 @@ export const filmBibles = pgTable('film_bibles', {
 
 export const filmCharacters = pgTable('film_characters', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  generationRunId: uuid('generationRunId'),
+  generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
   version: integer('version').notNull().default(1),
   stableKey: text('stableKey').notNull(),
   name: text('name').notNull(),
@@ -184,9 +184,9 @@ export const filmCharacters = pgTable('film_characters', {
 
 export const storyboardShots = pgTable('storyboard_shots', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text('userId').notNull(),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  generationRunId: uuid('generationRunId'),
+  generationRunId: uuid('generationRunId').references(() => generationRuns.id, { onDelete: 'set null' }),
   version: integer('version').notNull().default(1),
   shotNumber: integer('shotNumber').notNull(),
   sceneLabel: text('sceneLabel').notNull().default(''),
