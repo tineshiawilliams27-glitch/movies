@@ -6,9 +6,10 @@ export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 
 export type GenerationProvider = (context: ProviderContext) => Promise<ProviderResult>
 
 const replicateConnector = 'api.replicate.com/film-studio-video-generation'
-const videoProvider = (process.env.VIDEO_PROVIDER || 'local').trim().toLowerCase()
-const imageProvider = (process.env.IMAGE_PROVIDER || 'http').trim().toLowerCase()
-const audioProvider = (process.env.AUDIO_PROVIDER || process.env.VOICE_PROVIDER || 'http').trim().toLowerCase()
+const configured = (value: string | undefined, fallback: string) => (value ?? fallback).trim().toLowerCase()
+const videoProvider = configured(process.env.VIDEO_PROVIDER ?? process.env.VIDEO_PROVIDER_3, 'replicate')
+const imageProvider = configured(process.env.IMAGE_PROVIDER, 'replicate')
+const voiceProvider = configured(process.env.VOICE_PROVIDER ?? process.env.AUDIO_PROVIDER, 'elevenlabs')
 const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
 const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
 const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
@@ -16,8 +17,9 @@ const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
 const providerConfig = {
   VIDEO_GENERATION: videoProvider,
   IMAGE_GENERATION: imageProvider,
-  AUDIO_GENERATION: audioProvider,
-  VIDEO_EXPORT: (process.env.VIDEO_EXPORT_PROVIDER || 'local').trim().toLowerCase(),
+  AUDIO_GENERATION: voiceProvider,
+  VOICE_GENERATION: voiceProvider,
+  VIDEO_EXPORT: configured(process.env.VIDEO_EXPORT_PROVIDER, 'local'),
 } as const
 
 export const gatewayTextProvider: GenerationProvider = async ({ payload }) => ({
@@ -82,8 +84,10 @@ export function providerFor(type: string): GenerationProvider {
   if (type === 'PIPELINE_GENERATION' || type === 'TEXT_GENERATION') return gatewayTextProvider
   const configured = providerConfig[type as keyof typeof providerConfig]
   if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
-  if (type === 'IMAGE_GENERATION' && configured === 'http') return imageGenerationProvider
-  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http') return audioGenerationProvider
+  if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return imageGenerationProvider
+  if (type === 'IMAGE_GENERATION' && configured === 'replicate') return unavailableProvider('IMAGE_GENERATION (replicate adapter)')
+  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http' && audioEndpoint) return audioGenerationProvider
+  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return unavailableProvider('AUDIO_GENERATION (elevenlabs adapter)')
   if (type === 'VIDEO_EXPORT' && configured === 'local') return videoExportProvider
   return unavailableProvider(`${type} (${configured || 'unknown'})`)
 }
