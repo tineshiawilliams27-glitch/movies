@@ -19,6 +19,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const parsed = progressSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid progress payload.' }, { status: 400 })
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Job not found.' }, { status: 404 })
   const [job] = await db.update(generationJobs).set({ ...parsed.data, updatedAt: new Date() }).where(eq(generationJobs.id, id)).returning()
   if (!job) return NextResponse.json({ error: 'Job not found.' }, { status: 404 })
   const payload = (job.payload ?? {}) as Record<string, unknown>
