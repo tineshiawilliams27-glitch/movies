@@ -114,7 +114,11 @@ export function StudioDashboard({ persistedProjects = [], userName, userEmail }:
   async function duplicateProject(project: Project) {
     try {
       const response = await fetch(`/api/projects/${project.id}/duplicate`, { method: 'POST' })
-      if (!response.ok) { setCreateError('Project could not be duplicated. Please try again.'); return }
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setCreateError(data?.error || 'Project could not be duplicated. Please try again.')
+        return
+      }
       const data = await response.json()
       setProjects((current) => [{ ...project, id: data.project.id, title: data.project.title, updated: 'Just now', status: 'Draft' }, ...current])
       setSaved(true)
@@ -126,7 +130,10 @@ export function StudioDashboard({ persistedProjects = [], userName, userEmail }:
     try {
       const response = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
       if (response.ok) { setProjects((current) => current.filter((project) => project.id !== id)); setSaved(true); window.setTimeout(() => setSaved(false), 2200) }
-      else setCreateError('Project could not be deleted. Please try again.')
+      else {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setCreateError(data?.error || 'Project could not be deleted. Please try again.')
+      }
     } catch { setCreateError('Project could not be deleted. Check your connection and try again.') }
   }
 
