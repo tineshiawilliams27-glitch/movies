@@ -4,7 +4,7 @@ import { headers } from 'next/headers'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { filmBibles, filmCharacters, generationRuns, mediaAssets, projects, storyboardShots, timelineItems } from '@/lib/db/schema'
+import { filmBibles, filmCharacters, generationJobs, generationRuns, mediaAssets, projects, storyboardShots, timelineItems } from '@/lib/db/schema'
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -19,6 +19,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const shots = activeRun ? await db.select().from(storyboardShots).where(and(eq(storyboardShots.projectId, id), eq(storyboardShots.userId, session.user.id), eq(storyboardShots.generationRunId, activeRun.id))).orderBy(asc(storyboardShots.shotNumber)) : []
   const timeline = activeRun ? await db.select().from(timelineItems).where(and(eq(timelineItems.projectId, id), eq(timelineItems.userId, session.user.id), eq(timelineItems.generationRunId, activeRun.id))).orderBy(asc(timelineItems.trackType), asc(timelineItems.startSeconds), asc(timelineItems.id)) : []
   const media = await db.select().from(mediaAssets).where(and(eq(mediaAssets.projectId, id), eq(mediaAssets.userId, session.user.id))).orderBy(asc(mediaAssets.createdAt))
+  const [latestExport] = await db.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id), eq(generationJobs.type, 'VIDEO_EXPORT'), eq(generationJobs.status, 'COMPLETED'))).orderBy(desc(generationJobs.updatedAt)).limit(1)
   return NextResponse.json(
     {
       version: 2,
@@ -30,6 +31,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       shots: Array.isArray(shots) ? shots : [],
       timeline: Array.isArray(timeline) ? timeline : [],
       media: Array.isArray(media) ? media.map(({ pathname: _pathname, ...asset }) => ({ ...asset, deliveryUrl: `/api/media/${asset.id}` })) : [],
+      renderedMovie: latestExport?.result && typeof latestExport.result === 'object' && typeof (latestExport.result as { mediaId?: unknown }).mediaId === 'string' ? { deliveryUrl: `/api/media/${(latestExport.result as { mediaId: string }).mediaId}` } : null,
     },
     { headers: { 'Content-Disposition': 'attachment; filename="film-project-manifest.json"', 'Cache-Control': 'private, no-store' } },
   )

@@ -1,4 +1,3 @@
-import { del, put } from '@vercel/blob'
 import { NextResponse } from 'next/server'
 import { and, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
@@ -7,34 +6,25 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { mediaAssets, projects, scenes } from '@/lib/db/schema'
 
-const MAX_UPLOAD_BYTES = 250 * 1024 * 1024
-const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/wav', 'audio/ogg', 'text/vtt', 'text/plain', 'application/x-subrip'])
-const binaryTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/wav', 'audio/ogg'])
+const metadataSchema = z.object({
+  pathname: z.string().min(1),
+  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/wav', 'audio/ogg', 'text/vtt', 'text/plain', 'application/x-subrip']),
+  size: z.number().int().positive().max(250 * 1024 * 1024),
+  name: z.string().min(1).max(200),
+  kind: z.enum(['IMAGE', 'VIDEO', 'AUDIO', 'SUBTITLE']),
+  sceneId: z.string().uuid().optional(),
+})
 
-function hasSignature(type: string, bytes: Uint8Array) {
-  const ascii = (start: number, length: number) => String.fromCharCode(...bytes.slice(start, start + length))
-  if (type === 'image/jpeg') return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
-  if (type === 'image/png') return bytes.slice(0, 8).every((byte, index) => byte === [137, 80, 78, 71, 13, 10, 26, 10][index])
-  if (type === 'image/webp') return ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP'
-  if (type === 'video/mp4') return ascii(4, 4) === 'ftyp'
-  if (type === 'video/webm') return bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3
-  if (type === 'audio/mpeg') return (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) || ascii(0, 3) === 'ID3'
-  if (type === 'audio/wav') return ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WAVE'
-  if (type === 'audio/ogg') return ascii(0, 4) === 'OggS'
-  return true
-}
-
-function kindForType(type: string) {
-  return type.startsWith('image/') ? 'IMAGE' : type.startsWith('video/') ? 'VIDEO' : type.startsWith('audio/') ? 'AUDIO' : 'SUBTITLE'
+async function getProject(id: string, userId: string) {
+  const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, userId))).limit(1)
+  return project
 }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
-  if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
-  const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
-  if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
+  if (!await getProject(id, session.user.id)) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const assets = await db.select().from(mediaAssets).where(and(eq(mediaAssets.projectId, id), eq(mediaAssets.userId, session.user.id)))
   return NextResponse.json({ assets: assets.map(({ pathname: _pathname, ...asset }) => ({ ...asset, deliveryUrl: `/api/media/${asset.id}` })) })
 }
@@ -43,41 +33,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
-  if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
-  const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
-  if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
-  const formData = await request.formData()
-  const file = formData.get('file')
-  if (!(file instanceof File)) return NextResponse.json({ error: 'A file is required.' }, { status: 400 })
-  if (file.size <= 0 || file.size > MAX_UPLOAD_BYTES) return NextResponse.json({ error: 'File must be between 1 byte and 250 MB.' }, { status: 413 })
-  if (!allowedTypes.has(file.type)) return NextResponse.json({ error: 'Unsupported media type.' }, { status: 415 })
-  if (binaryTypes.has(file.type)) {
-    const header = new Uint8Array(await file.slice(0, 16).arrayBuffer())
-    if (!hasSignature(file.type, header)) return NextResponse.json({ error: 'File contents do not match the declared media type.' }, { status: 415 })
-  }
-  const inferredKind = kindForType(file.type)
-  const kindValue = formData.get('kind')
-  const kindResult = kindValue === null ? { success: true as const, data: inferredKind } : z.enum(['IMAGE', 'VIDEO', 'AUDIO', 'SUBTITLE']).safeParse(kindValue)
-  if (!kindResult.success) return NextResponse.json({ error: 'Unsupported media kind.' }, { status: 400 })
-  const kind = kindResult.data
-  if (kind !== inferredKind) return NextResponse.json({ error: 'Media kind does not match the file type.' }, { status: 400 })
-  const sceneIdValue = formData.get('sceneId')
-  if (sceneIdValue !== null && (typeof sceneIdValue !== 'string' || !z.string().uuid().safeParse(sceneIdValue).success)) return NextResponse.json({ error: 'Invalid scene ID.' }, { status: 400 })
-  const sceneId = typeof sceneIdValue === 'string' ? sceneIdValue : undefined
+  if (!await getProject(id, session.user.id)) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
+  const result = metadataSchema.safeParse(await request.json())
+  if (!result.success) return NextResponse.json({ error: 'Invalid upload metadata.' }, { status: 400 })
+  const { pathname, contentType, size, name, kind, sceneId } = result.data
+  if (kind === 'IMAGE' && !contentType.startsWith('image/')) return NextResponse.json({ error: 'Media kind does not match the file type.' }, { status: 400 })
+  if (kind === 'VIDEO' && !contentType.startsWith('video/')) return NextResponse.json({ error: 'Media kind does not match the file type.' }, { status: 400 })
+  if (kind === 'AUDIO' && !contentType.startsWith('audio/')) return NextResponse.json({ error: 'Media kind does not match the file type.' }, { status: 400 })
   if (sceneId) {
     const [scene] = await db.select({ id: scenes.id }).from(scenes).where(and(eq(scenes.id, sceneId), eq(scenes.projectId, id), eq(scenes.userId, session.user.id))).limit(1)
     if (!scene) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   }
-  const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 200) || 'upload'
-  const pathname = `projects/${id}/uploads/${crypto.randomUUID()}-${safeFilename}`
-  const blob = await put(pathname, file, { access: 'private', contentType: file.type, addRandomSuffix: false })
-  try {
-    const [asset] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, sceneId, kind, pathname: blob.pathname, contentType: file.type }).returning()
-    if (!asset?.id) throw new Error('Media record could not be created.')
-    const { pathname: _pathname, ...publicAsset } = asset
-    return NextResponse.json({ asset: { ...publicAsset, deliveryUrl: `/api/media/${asset.id}` } }, { status: 201 })
-  } catch (error) {
-    await del(blob.url).catch((cleanupError) => console.error('[v0] private media cleanup failed', cleanupError))
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Media record could not be created.' }, { status: 500 })
-  }
+  const [asset] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, sceneId, kind, pathname, contentType, metadata: { originalName: name, size } }).returning()
+  return NextResponse.json({ asset: { ...asset, deliveryUrl: `/api/media/${asset.id}` } }, { status: 201 })
 }

@@ -1,8 +1,13 @@
 import { getToken } from '@vercel/connect'
-import { put } from '@vercel/blob'
+import { get, put } from '@vercel/blob'
+import ffmpeg from 'fluent-ffmpeg'
+import ffmpegPath from 'ffmpeg-static'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { db } from '../../lib/db'
-import { scenes } from '../../lib/db/schema'
-import { and, eq } from 'drizzle-orm'
+import { mediaAssets, scenes, timelineItems } from '../../lib/db/schema'
+import { and, asc, eq } from 'drizzle-orm'
 
 export type ProviderContext = { jobId: string; payload: Record<string, unknown> }
 export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 'NOT_CONFIGURED' }
@@ -46,12 +51,32 @@ const sceneBreakdownProvider: GenerationProvider = async ({ payload }) => {
       current.durationSeconds = Number(current.durationSeconds || 0) + Number(shot.durationSeconds || 0)
     } else grouped.set(label, { title: typeof shot.title === 'string' ? shot.title : label, description: shot.description || '', dialogue: shot.dialogue || '', location: shot.location || label, durationSeconds: Number(shot.durationSeconds || 0), metadata: { source: 'SCENE_BREAKDOWN', shotNumbers: [shot.shotNumber] } })
   }
-  let sceneNumber = 1
-  for (const scene of grouped.values()) {
-    await db.insert(scenes).values({ userId, projectId, sceneNumber, title: String(scene.title), description: String(scene.description), dialogue: String(scene.dialogue), location: String(scene.location), durationSeconds: String(scene.durationSeconds), metadata: scene.metadata as Record<string, unknown> }).onConflictDoNothing()
-    sceneNumber += 1
-  }
-  return { result: { provider: 'scene-breakdown-worker', scenesCreated: grouped.size } }
+  const generatedScenes = Array.from(grouped.values())
+  await db.transaction(async (tx) => {
+    await tx.delete(scenes).where(and(eq(scenes.projectId, projectId), eq(scenes.userId, userId)))
+    for (const [index, scene] of generatedScenes.entries()) {
+      await tx.insert(scenes).values({
+        userId,
+        projectId,
+        sceneNumber: index + 1,
+        title: String(scene.title),
+        description: String(scene.description),
+        dialogue: String(scene.dialogue),
+        location: String(scene.location),
+        durationSeconds: String(scene.durationSeconds),
+        metadata: { ...(scene.metadata as Record<string, unknown>), generatedAt: new Date().toISOString() },
+      })
+    }
+  })
+  return { result: { provider: 'scene-breakdown-worker', scenesCreated: generatedScenes.length, replacedExistingScenes: true } }
+}
+
+async function persistGeneratedMedia(payload: Record<string, unknown>, pathname: string, contentType: string, kind: string, metadata: Record<string, unknown> = {}) {
+  const userId = typeof payload.userId === 'string' ? payload.userId : ''
+  const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
+  if (!userId || !projectId) throw new Error(`${kind} generation requires project and user context.`)
+  const [asset] = await db.insert(mediaAssets).values({ userId, projectId, kind, pathname, contentType, durationSeconds: typeof payload.durationSeconds === 'number' ? String(payload.durationSeconds) : undefined, metadata }).returning({ id: mediaAssets.id })
+  return asset.id
 }
 
 async function replicateVideoProvider({ jobId, payload }: ProviderContext): Promise<ProviderResult> {
@@ -81,7 +106,8 @@ async function replicateVideoProvider({ jobId, payload }: ProviderContext): Prom
   const clip = await fetch(outputUrl)
   if (!clip.ok) throw new Error('Replicate returned an unreadable clip.')
   const blob = await put(`film-clips/${jobId}.mp4`, await clip.blob(), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
-  return { result: { provider: 'replicate', predictionId: prediction.id, assetPathname: blob.pathname, status: prediction.status } }
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, 'video/mp4', 'VIDEO_CLIP', { provider: 'replicate', predictionId: prediction.id })
+  return { result: { provider: 'replicate', predictionId: prediction.id, assetPathname: blob.pathname, assetId, status: prediction.status } }
 }
 
 export function unavailableProvider(name: string): GenerationProvider {
@@ -92,20 +118,54 @@ async function httpMediaProvider({ jobId, payload }: ProviderContext, endpoint: 
   const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, ...payload }) })
   if (!response.ok) throw new Error(`${kind} provider failed with ${response.status}.`)
   const data = await response.json() as { url?: string; assetPathname?: string; mimeType?: string; durationSeconds?: number }
-  if (typeof data.assetPathname === 'string') return { result: { provider: endpoint, assetPathname: data.assetPathname, kind } }
+  if (typeof data.assetPathname === 'string') {
+    const assetId = await persistGeneratedMedia(payload, data.assetPathname, data.mimeType || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), kind === 'IMAGE' ? 'IMAGE_GENERATED' : 'AUDIO_GENERATED', { provider: endpoint })
+    return { result: { provider: endpoint, assetPathname: data.assetPathname, assetId, kind } }
+  }
   if (!data.url) throw new Error(`${kind} provider must return url or assetPathname.`)
   const media = await fetch(data.url)
   if (!media.ok) throw new Error(`${kind} provider returned an unreadable asset.`)
   const blob = await put(`film-${kind.toLowerCase()}/${jobId}`, await media.blob(), { access: 'private', contentType: data.mimeType || media.headers.get('content-type') || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), addRandomSuffix: false })
-  return { result: { provider: endpoint, assetPathname: blob.pathname, kind, durationSeconds: data.durationSeconds } }
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, data.mimeType || media.headers.get('content-type') || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), kind === 'IMAGE' ? 'IMAGE_GENERATED' : 'AUDIO_GENERATED', { provider: endpoint })
+  return { result: { provider: endpoint, assetPathname: blob.pathname, assetId, kind, durationSeconds: data.durationSeconds } }
 }
 
 const imageGenerationProvider: GenerationProvider = async (context) => imageEndpoint ? httpMediaProvider(context, imageEndpoint, 'IMAGE') : unavailableProvider('IMAGE_GENERATION (IMAGE_PROVIDER_URL)')(context)
 const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('AUDIO_GENERATION (AUDIO_PROVIDER_URL)')(context)
 const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
-  const manifest = { jobId, format: payload.format || 'mp4', resolution: payload.resolution || '1080p', frameRate: payload.frameRate || 24, aspectRatio: payload.aspectRatio || '16:9', createdAt: new Date().toISOString(), status: 'READY' }
-  const blob = await put(`film-exports/${jobId}.json`, JSON.stringify(manifest), { access: 'private', contentType: 'application/json', addRandomSuffix: false })
-  return { result: { provider: 'local-export', assetPathname: blob.pathname, manifest } }
+  if (!ffmpegPath) throw new Error('FFmpeg binary is unavailable in this runtime.')
+  const executablePath = ffmpegPath
+  const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
+  const userId = typeof payload.userId === 'string' ? payload.userId : ''
+  if (!projectId || !userId) throw new Error('Video export requires project and user context.')
+  const items = await db.select().from(timelineItems).where(and(eq(timelineItems.projectId, projectId), eq(timelineItems.userId, userId))).orderBy(asc(timelineItems.startSeconds), asc(timelineItems.id))
+  const videoItems = items.filter((item) => item.trackType === 'VIDEO' && item.content)
+  if (videoItems.length === 0) throw new Error('No video assets are available for export.')
+  const workdir = await mkdtemp(join(tmpdir(), 'film-export-'))
+  try {
+    const inputs: string[] = []
+    for (const [index, item] of videoItems.entries()) {
+      const [linkedAsset] = item.assetId ? await db.select({ pathname: mediaAssets.pathname }).from(mediaAssets).where(and(eq(mediaAssets.id, item.assetId), eq(mediaAssets.projectId, projectId), eq(mediaAssets.userId, userId))).limit(1) : []
+      const pathname = linkedAsset?.pathname ?? item.content
+      const asset = await get(pathname, { access: 'private' })
+      if (!asset) throw new Error(`Timeline asset ${item.label || index + 1} was not found.`)
+      const extension = pathname.endsWith('.mp4') ? 'mp4' : 'bin'
+      const inputPath = join(workdir, `input-${index}.${extension}`)
+      const buffer = Buffer.from(await new Response(asset.stream).arrayBuffer())
+      await writeFile(inputPath, buffer)
+      inputs.push(inputPath)
+    }
+    const outputPath = join(workdir, 'film.mp4')
+    await new Promise<void>((resolve, reject) => {
+      let command = ffmpeg().setFfmpegPath(executablePath)
+      for (const input of inputs) command = command.input(input)
+      command.outputOptions(['-map 0:v:0', '-c:v libx264', '-preset veryfast', '-pix_fmt yuv420p', '-movflags +faststart', '-r 24']).on('end', () => resolve()).on('error', reject).save(outputPath)
+    })
+    const blob = await put(`film-exports/${jobId}.mp4`, await (await import('node:fs/promises')).readFile(outputPath), { access: 'private', contentType: 'video/mp4', addRandomSuffix: false })
+    const [media] = await db.insert(mediaAssets).values({ userId, projectId, kind: 'VIDEO_EXPORT', pathname: blob.pathname, contentType: 'video/mp4', metadata: { jobId, sourceCount: inputs.length } }).returning({ id: mediaAssets.id })
+    const manifest = { jobId, projectId, format: payload.format || 'mp4', resolution: payload.resolution || '1080p', frameRate: payload.frameRate || 24, aspectRatio: payload.aspectRatio || '16:9', createdAt: new Date().toISOString(), status: 'READY', assetPathname: blob.pathname, mediaId: media?.id, sourceCount: inputs.length }
+    return { result: { provider: 'ffmpeg', assetPathname: blob.pathname, mediaId: media?.id, manifest } }
+  } finally { await rm(workdir, { recursive: true, force: true }) }
 }
 
 export function providerFor(type: string): GenerationProvider {
@@ -117,7 +177,7 @@ export function providerFor(type: string): GenerationProvider {
   if (type === 'IMAGE_GENERATION' && configured === 'replicate') return unavailableProvider('IMAGE_GENERATION (replicate adapter)')
   if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http' && audioEndpoint) return audioGenerationProvider
   if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return unavailableProvider('AUDIO_GENERATION (elevenlabs adapter)')
-  if (type === 'VIDEO_EXPORT' && configured === 'local') return videoExportProvider
+  if ((type === 'TIMELINE' || type === 'VIDEO_EXPORT') && configured === 'local') return videoExportProvider
   return unavailableProvider(`${type} (${configured || 'unknown'})`)
 }
 

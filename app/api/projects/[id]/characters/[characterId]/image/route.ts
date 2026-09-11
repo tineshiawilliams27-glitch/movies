@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import { put } from '@vercel/blob'
+import { getToken } from '@vercel/connect'
 import { eq, and } from 'drizzle-orm'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
@@ -18,8 +19,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const prompt = body.prompt?.trim() || `Photorealistic cinematic character portrait for a film. Name: ${record.character.name}. Description: ${record.character.description}. Appearance: ${record.character.appearance}. Voice and personality: ${record.character.voice}. Natural skin texture, expressive eyes, realistic wardrobe, studio portrait lighting, 85mm lens, shallow depth of field, no text, no watermark.`
 
   try {
-    const token = process.env.REPLICATE_API_TOKEN
-    if (!token) return NextResponse.json({ error: 'Image generation is not configured.' }, { status: 503 })
+    const token = await getToken('api.replicate.com/film-studio-video-generation', { subject: { type: 'app' }, scopes: ['*'] })
     const model = process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev'
     const [owner, version] = model.split('/')
     if (!owner || !version) throw new Error('REPLICATE_IMAGE_MODEL must use owner/model format.')
@@ -36,9 +36,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const imageUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output
     const imageResponse = await fetch(imageUrl)
     if (!imageResponse.ok) throw new Error('Generated image could not be downloaded')
-    const blob = await put(`projects/${id}/characters/${characterId}/${crypto.randomUUID()}.png`, await imageResponse.blob(), { access: 'public', contentType: 'image/png', addRandomSuffix: false })
-    const [media] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, kind: 'CHARACTER_REFERENCE', pathname: blob.url, contentType: 'image/png', metadata: { characterId, prompt, source: `replicate/${model}` } }).returning()
-    return NextResponse.json({ imageUrl: blob.url, media })
+    const blob = await put(`projects/${id}/characters/${characterId}/${crypto.randomUUID()}.png`, await imageResponse.blob(), { access: 'private', contentType: 'image/png', addRandomSuffix: false })
+    const [media] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, kind: 'CHARACTER_REFERENCE', pathname: blob.pathname, contentType: 'image/png', metadata: { characterId, prompt, source: `replicate/${model}` } }).returning()
+    return NextResponse.json({ imageUrl: `/api/media/${media.id}`, media: { ...media, deliveryUrl: `/api/media/${media.id}` } })
   } catch (error) {
     console.error('[v0] character image generation failed', error)
     return NextResponse.json({ error: 'Unable to generate the character image right now. Please try again.' }, { status: 502 })
