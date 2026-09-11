@@ -46,7 +46,7 @@ export function TimelineEditor({ projectId }: { projectId: string }) {
           setScenes(data.scenes ?? [])
         }
       } catch {
-        if (!cancelled) setMessage('Unable to load timeline data')
+        if (!cancelled) setMessage('Unable to load timeline data. Check your connection.')
       } finally {
         if (!cancelled) setLoading(false)
       }
