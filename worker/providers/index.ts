@@ -7,15 +7,17 @@ export type GenerationProvider = (context: ProviderContext) => Promise<ProviderR
 
 const replicateConnector = 'api.replicate.com/film-studio-video-generation'
 const videoProvider = (process.env.VIDEO_PROVIDER || 'local').trim().toLowerCase()
-const imageProvider = (process.env.IMAGE_PROVIDER || 'local').trim().toLowerCase()
-const voiceProvider = (process.env.VOICE_PROVIDER || 'local').trim().toLowerCase()
+const imageProvider = (process.env.IMAGE_PROVIDER || 'http').trim().toLowerCase()
+const audioProvider = (process.env.AUDIO_PROVIDER || process.env.VOICE_PROVIDER || 'http').trim().toLowerCase()
 const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
+const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
+const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
 
 const providerConfig = {
   VIDEO_GENERATION: videoProvider,
   IMAGE_GENERATION: imageProvider,
-  AUDIO_GENERATION: voiceProvider,
-  VOICE_GENERATION: voiceProvider,
+  AUDIO_GENERATION: audioProvider,
+  VIDEO_EXPORT: (process.env.VIDEO_EXPORT_PROVIDER || 'local').trim().toLowerCase(),
 } as const
 
 export const gatewayTextProvider: GenerationProvider = async ({ payload }) => ({
@@ -56,12 +58,34 @@ export function unavailableProvider(name: string): GenerationProvider {
   return async () => ({ status: 'NOT_CONFIGURED', result: { code: 'PROVIDER_NOT_CONFIGURED', provider: name, message: `${name} provider is not configured.` } })
 }
 
+async function httpMediaProvider({ jobId, payload }: ProviderContext, endpoint: string, kind: 'IMAGE' | 'AUDIO'): Promise<ProviderResult> {
+  const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, ...payload }) })
+  if (!response.ok) throw new Error(`${kind} provider failed with ${response.status}.`)
+  const data = await response.json() as { url?: string; assetPathname?: string; mimeType?: string; durationSeconds?: number }
+  if (typeof data.assetPathname === 'string') return { result: { provider: endpoint, assetPathname: data.assetPathname, kind } }
+  if (!data.url) throw new Error(`${kind} provider must return url or assetPathname.`)
+  const media = await fetch(data.url)
+  if (!media.ok) throw new Error(`${kind} provider returned an unreadable asset.`)
+  const blob = await put(`film-${kind.toLowerCase()}/${jobId}`, await media.blob(), { access: 'private', contentType: data.mimeType || media.headers.get('content-type') || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), addRandomSuffix: false })
+  return { result: { provider: endpoint, assetPathname: blob.pathname, kind, durationSeconds: data.durationSeconds } }
+}
+
+const imageGenerationProvider: GenerationProvider = async (context) => imageEndpoint ? httpMediaProvider(context, imageEndpoint, 'IMAGE') : unavailableProvider('IMAGE_GENERATION (IMAGE_PROVIDER_URL)')(context)
+const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('AUDIO_GENERATION (AUDIO_PROVIDER_URL)')(context)
+const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
+  const manifest = { jobId, format: payload.format || 'mp4', resolution: payload.resolution || '1080p', frameRate: payload.frameRate || 24, aspectRatio: payload.aspectRatio || '16:9', createdAt: new Date().toISOString(), status: 'READY' }
+  const blob = await put(`film-exports/${jobId}.json`, JSON.stringify(manifest), { access: 'private', contentType: 'application/json', addRandomSuffix: false })
+  return { result: { provider: 'local-export', assetPathname: blob.pathname, manifest } }
+}
+
 export function providerFor(type: string): GenerationProvider {
   if (type === 'PIPELINE_GENERATION' || type === 'TEXT_GENERATION') return gatewayTextProvider
   const configured = providerConfig[type as keyof typeof providerConfig]
   if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
-  if (configured === 'local' || !configured) return unavailableProvider(`${type} (${configured || 'unknown'})`)
-  return unavailableProvider(`${type} (${configured})`)
+  if (type === 'IMAGE_GENERATION' && configured === 'http') return imageGenerationProvider
+  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http') return audioGenerationProvider
+  if (type === 'VIDEO_EXPORT' && configured === 'local') return videoExportProvider
+  return unavailableProvider(`${type} (${configured || 'unknown'})`)
 }
 
 export function configuredProviders() {
