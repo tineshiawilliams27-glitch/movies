@@ -13,7 +13,7 @@ import { and, asc, desc, eq } from 'drizzle-orm'
 
 export type ProviderContext = { jobId: string; payload: Record<string, unknown> }
 export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 'NOT_CONFIGURED' }
-export type GenerationProvider = (context: ProviderContext) => Promise<ProviderResult>
+export type GenerationProvider = (context: ProviderContext & { onProgress?: (progress: number, stage?: string) => Promise<void> }) => Promise<ProviderResult>
 
 const configured = (value: string | undefined, fallback: string) => (value ?? fallback).trim().toLowerCase()
 const videoProvider = configured(process.env.VIDEO_PROVIDER ?? process.env.VIDEO_PROVIDER_3, 'replicate')
@@ -84,7 +84,7 @@ async function persistGeneratedMedia(payload: Record<string, unknown>, pathname:
   return asset.id
 }
 
-async function replicateVideoProvider({ jobId, payload }: ProviderContext): Promise<ProviderResult> {
+async function replicateVideoProvider({ jobId, payload, onProgress }: ProviderContext & { onProgress?: (progress: number, stage?: string) => Promise<void> }): Promise<ProviderResult> {
   if (!replicateModel) return { status: 'NOT_CONFIGURED', result: { code: 'VIDEO_PROVIDER_NOT_CONFIGURED', message: 'Set REPLICATE_VIDEO_MODEL to enable video generation.' } }
   const token = requireReplicateToken()
   const [owner, model] = replicateModel.split('/')
@@ -123,6 +123,7 @@ async function replicateVideoProvider({ jobId, payload }: ProviderContext): Prom
   if (!created.ok) throw new Error(`Replicate prediction failed with ${created.status}.`)
   let prediction = await created.json() as { id: string; status: string; output?: string | string[]; error?: string }
   for (let attempt = 0; attempt < 60 && ['starting', 'processing'].includes(prediction.status); attempt += 1) {
+    await onProgress?.(Math.min(95, 15 + Math.round((attempt / 60) * 80)), prediction.status === 'starting' ? 'Starting video provider' : 'Rendering video clip')
     await new Promise((resolve) => setTimeout(resolve, 5000))
     const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: replicateHeaders(token) })
     if (!response.ok) throw new Error(`Replicate polling failed with ${response.status}.`)
@@ -141,10 +142,11 @@ export function unavailableProvider(name: string): GenerationProvider {
   return async () => ({ status: 'NOT_CONFIGURED', result: { code: 'PROVIDER_NOT_CONFIGURED', provider: name, message: `${name} provider is not configured.` } })
 }
 
-async function httpMediaProvider({ jobId, payload }: ProviderContext, endpoint: string, kind: 'IMAGE' | 'AUDIO'): Promise<ProviderResult> {
+async function httpMediaProvider({ jobId, payload, onProgress }: ProviderContext & { onProgress?: (progress: number, stage?: string) => Promise<void> }, endpoint: string, kind: 'IMAGE' | 'AUDIO'): Promise<ProviderResult> {
   const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, ...payload }) })
   if (!response.ok) throw new Error(`${kind} provider failed with ${response.status}.`)
-  const data = await response.json() as { url?: string; assetPathname?: string; mimeType?: string; durationSeconds?: number }
+  const data = await response.json() as { url?: string; assetPathname?: string; mimeType?: string; durationSeconds?: number; progress?: number; stage?: string }
+  if (typeof data.progress === 'number') await onProgress?.(Math.max(0, Math.min(100, data.progress)), data.stage)
   if (typeof data.assetPathname === 'string') {
     const assetId = await persistGeneratedMedia(payload, data.assetPathname, data.mimeType || (kind === 'IMAGE' ? 'image/png' : 'audio/mpeg'), kind === 'IMAGE' ? 'IMAGE_GENERATED' : 'AUDIO_GENERATED', { provider: endpoint })
     return { result: { provider: endpoint, assetPathname: data.assetPathname, assetId, kind } }
