@@ -17,6 +17,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const userId = await getUserId()
   if (!userId) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const [project] = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, userId))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   return NextResponse.json({ project })
@@ -26,6 +27,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const userId = await getUserId()
   if (!userId) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const [deleted] = await db.delete(projects).where(and(eq(projects.id, id), eq(projects.userId, userId))).returning({ id: projects.id })
   if (!deleted) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   return NextResponse.json({ ok: true })
@@ -35,6 +37,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const userId = await getUserId()
   if (!userId) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const parsed = updateSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid project payload.', issues: parsed.error.issues }, { status: 400 })
   const existing = await db.select({ metadata: projects.metadata }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, userId))).limit(1)

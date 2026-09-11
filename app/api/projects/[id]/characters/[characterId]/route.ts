@@ -17,6 +17,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id, characterId } = await params
+  if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(characterId).success) return NextResponse.json({ error: 'Character not found.' }, { status: 404 })
   const parsed = schema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid character payload.', issues: parsed.error.issues }, { status: 400 })
   const [character] = await db.update(characters).set({ ...parsed.data, updatedAt: new Date() }).where(and(eq(characters.id, characterId), eq(characters.projectId, id), eq(characters.userId, session.user.id))).returning()
@@ -28,6 +29,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id, characterId } = await params
+  if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(characterId).success) return NextResponse.json({ error: 'Character not found.' }, { status: 404 })
   const [character] = await db.delete(characters).where(and(eq(characters.id, characterId), eq(characters.projectId, id), eq(characters.userId, session.user.id))).returning({ id: characters.id })
   if (!character) return NextResponse.json({ error: 'Character not found.' }, { status: 404 })
   return new NextResponse(null, { status: 204 })

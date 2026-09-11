@@ -11,7 +11,10 @@ type QueuedJob = { jobId: string; type?: string; payload?: Record<string, unknow
 
 async function report(jobId: string, payload: Progress) {
   if (!appUrl) throw new Error('APP_URL is required for worker callbacks.')
-  const response = await fetch(`${appUrl}/api/internal/jobs/${jobId}/progress`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${workerToken ?? ''}` }, body: JSON.stringify(payload) })
+  if (!workerToken && process.env.NODE_ENV === 'production') throw new Error('WORKER_TOKEN is required for worker callbacks.')
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (workerToken) headers.authorization = `Bearer ${workerToken}`
+  const response = await fetch(`${appUrl}/api/internal/jobs/${jobId}/progress`, { method: 'POST', headers, body: JSON.stringify(payload) })
   if (!response.ok) throw new Error(`Progress callback failed with ${response.status}.`)
 }
 

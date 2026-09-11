@@ -19,6 +19,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id, sceneId } = await params
+  if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(sceneId).success) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const parsed = updateSchema.safeParse(await request.json().catch(() => null))
@@ -38,6 +39,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id, sceneId } = await params
+  if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(sceneId).success) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   const deleted = await db.transaction(async (tx) => {
     const [scene] = await tx.delete(scenes).where(and(eq(scenes.id, sceneId), eq(scenes.projectId, id), eq(scenes.userId, session.user.id))).returning({ id: scenes.id })
     if (!scene) return false
