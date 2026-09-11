@@ -55,7 +55,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await enqueueGenerationJob(job.id, parsed.data.payload, parsed.data.type)
   } catch (error) {
     console.error('[v0] queue enqueue failed', error)
-    const [failedJob] = await db.update(generationJobs).set({ status: 'FAILED', stage: 'Queue unavailable', error: 'The generation queue could not accept this job.', updatedAt: new Date() }).where(eq(generationJobs.id, job.id)).returning()
+    const [failedJob] = await db.update(generationJobs).set({ status: 'FAILED', stage: 'Queue unavailable', error: 'The generation queue could not accept this job.', updatedAt: new Date() }).where(and(eq(generationJobs.id, job.id), eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id))).returning()
     return NextResponse.json({ job: failedJob }, { status: 503 })
   }
   return NextResponse.json({ job }, { status: 201 })

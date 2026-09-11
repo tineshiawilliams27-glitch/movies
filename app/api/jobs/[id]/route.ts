@@ -20,7 +20,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     await enqueueGenerationJob(replayed.id, replayed.payload as Record<string, unknown>, replayed.type)
   } catch (error) {
-    await db.update(generationJobs).set({ status: 'DEAD_LETTER', stage: 'Replay enqueue failed', error: error instanceof Error ? error.message : 'Queue unavailable.', updatedAt: new Date() }).where(eq(generationJobs.id, replayed.id))
+    await db.update(generationJobs).set({ status: 'DEAD_LETTER', stage: 'Replay enqueue failed', error: error instanceof Error ? error.message : 'Queue unavailable.', updatedAt: new Date() }).where(and(eq(generationJobs.id, replayed.id), eq(generationJobs.userId, session.user.id)))
     return NextResponse.json({ error: 'Job could not be requeued.' }, { status: 503 })
   }
   return NextResponse.json({ job: replayed })

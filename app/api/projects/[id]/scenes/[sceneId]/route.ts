@@ -45,7 +45,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     if (!scene) return false
     const remaining = await tx.select({ id: scenes.id, sceneNumber: scenes.sceneNumber }).from(scenes).where(and(eq(scenes.projectId, id), eq(scenes.userId, session.user.id))).orderBy(desc(scenes.sceneNumber))
     for (const [index, remainingScene] of remaining.entries()) {
-      await tx.update(scenes).set({ sceneNumber: remaining.length - index, updatedAt: new Date() }).where(eq(scenes.id, remainingScene.id))
+      await tx.update(scenes).set({ sceneNumber: remaining.length - index, updatedAt: new Date() }).where(and(eq(scenes.id, remainingScene.id), eq(scenes.projectId, id), eq(scenes.userId, session.user.id)))
     }
     return true
   })
