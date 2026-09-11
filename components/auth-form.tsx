@@ -14,8 +14,15 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [pending, setPending] = useState(false)
   const [showRecovery, setShowRecovery] = useState(false)
   const [recoverySent, setRecoverySent] = useState(false)
+  const [termsAccepted, setTermsAccepted] = useState(false)
   const isSignUp = mode === 'sign-up'
   const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  const passwordChecks = {
+    length: password.length >= 8,
+    uppercase: /[A-Z]/.test(password),
+    number: /\d/.test(password),
+  }
+  const passwordIsStrong = Object.values(passwordChecks).every(Boolean)
 
   async function handleRecovery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -39,12 +46,20 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    if (isSignUp && !name.trim()) {
+      setError('Enter your name to create an account.')
+      return
+    }
     if (!email.trim() || !emailIsValid) {
       setError('Enter a valid email address.')
       return
     }
-    if (!password || password.length < 8) {
-      setError('Password must be at least 8 characters.')
+    if (!passwordIsStrong) {
+      setError('Password must be 8+ characters and include an uppercase letter and a number.')
+      return
+    }
+    if (isSignUp && !termsAccepted) {
+      setError('Accept the Terms and Privacy Policy to create an account.')
       return
     }
     if (pending) return
@@ -61,7 +76,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         ? await signUp.email({ name: name.trim(), email: normalizedEmail, password, callbackURL: safeRedirect })
         : await signIn.email({ email: normalizedEmail, password, callbackURL: safeRedirect })
       if (result.error) {
-        setError('That email or password is incorrect. If you are new here, create an account first.')
+        setError(isSignUp ? 'We could not create this account. The email may already be registered, or the details may be invalid.' : 'That email or password is incorrect. If you are new here, create an account first.')
         return
       }
       router.replace(safeRedirect)
@@ -89,9 +104,10 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
-            {isSignUp && <input aria-label="Name" autoComplete="name" value={name} onChange={(e) => { setName(e.target.value); setError('') }} placeholder="Name" required className="rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" />}
+            {isSignUp && <label htmlFor="name" className="text-sm font-medium">Name<input id="name" aria-label="Name" autoComplete="name" value={name} onChange={(e) => { setName(e.target.value); setError('') }} placeholder="Your name" maxLength={100} required className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" /></label>}
             <input aria-label="Email" type="email" autoComplete="email" value={email} onChange={(e) => { setEmail(e.target.value); setError('') }} placeholder="Email" required className="rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" />
-            <label htmlFor="password" className="text-sm font-medium">Password<input id="password" aria-label="Password" type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} value={password} onChange={(e) => { setPassword(e.target.value); setError('') }} placeholder="Password" minLength={8} required className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" />{isSignUp && <span className="mt-1 block text-xs text-muted-foreground">Use at least 8 characters.</span>}</label>
+            <label htmlFor="password" className="text-sm font-medium">Password<input id="password" aria-label="Password" type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} value={password} onChange={(e) => { setPassword(e.target.value); setError('') }} placeholder="Password" minLength={8} required className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:ring-2 focus:ring-primary" />{isSignUp && <span className="mt-1 block text-xs text-muted-foreground">Use 8+ characters with an uppercase letter and a number.</span>}</label>
+            {isSignUp && <label className="flex items-start gap-3 text-sm leading-6 text-muted-foreground"><input type="checkbox" checked={termsAccepted} onChange={(e) => { setTermsAccepted(e.target.checked); setError('') }} className="mt-1 size-4 accent-primary" /> <span>I agree to the <Link href="/terms" className="text-primary hover:underline">Terms</Link> and <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>.</span></label>}
             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
             {!isSignUp && <button type="button" onClick={() => { setShowRecovery(true); setError('') }} className="self-end text-sm text-primary hover:underline">Forgot password?</button>}
             <button disabled={pending} className="rounded-xl bg-primary px-4 py-3 font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-60">{pending ? 'Working…' : isSignUp ? 'Create account' : 'Sign in'}</button>
