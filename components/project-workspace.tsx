@@ -22,11 +22,15 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     if (!activeSceneId) return
     let cancelled = false
     const poll = async () => {
-      const response = await fetch(`/api/projects/${projectId}/jobs?sceneId=${activeSceneId}`)
-      if (!response.ok || cancelled) return
-      const data = await response.json()
-      const nextJob = data.jobs?.find((job: { status: string }) => job.status === 'QUEUED' || job.status === 'PROCESSING') ?? data.jobs?.[0] ?? null
-      setActiveJob(nextJob ? { id: nextJob.id, status: nextJob.status, progress: nextJob.progress, stage: nextJob.stage } : null)
+      try {
+        const response = await fetch(`/api/projects/${projectId}/jobs?sceneId=${activeSceneId}`, { cache: 'no-store' })
+        if (!response.ok || cancelled) return
+        const data = await response.json()
+        const nextJob = data.jobs?.find((job: { status: string }) => job.status === 'QUEUED' || job.status === 'PROCESSING') ?? data.jobs?.[0] ?? null
+        setActiveJob(nextJob ? { id: nextJob.id, status: nextJob.status, progress: nextJob.progress, stage: nextJob.stage } : null)
+      } catch {
+        // Polling is best effort; the next interval can recover from a transient network failure.
+      }
     }
     poll()
     const timer = window.setInterval(poll, 2500)
@@ -72,8 +76,16 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     setMessage('Generating story, characters, screenplay, and storyboard...')
     const response = await fetch(`/api/projects/${projectId}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'pipeline', prompt }) })
     if (response.ok) {
-      const nextFilm = await fetch(`/api/projects/${projectId}/film`)
+      const [nextFilm, nextScenes] = await Promise.all([
+        fetch(`/api/projects/${projectId}/film`, { cache: 'no-store' }),
+        fetch(`/api/projects/${projectId}/scenes`, { cache: 'no-store' }),
+      ])
       if (nextFilm.ok) setFilm(await nextFilm.json())
+      if (nextScenes.ok) {
+        const data = await nextScenes.json()
+        setScenes(data.scenes)
+        setActiveId((current) => current ?? data.scenes[0]?.id ?? null)
+      }
     }
     setMessage(response.ok ? 'Pipeline generated and clips queued' : 'Pipeline failed')
     window.setTimeout(() => setMessage(''), 3200)
