@@ -10,6 +10,7 @@ import { enqueueGenerationJob } from '@/lib/queue'
 const createJobSchema = z.object({
   type: z.enum(['STORY_GENERATION', 'IMAGE_GENERATION', 'VIDEO_GENERATION', 'VOICE_GENERATION', 'VIDEO_RENDER', 'VIDEO_EXPORT']),
   sceneId: z.string().uuid().optional(),
+  idempotencyKey: z.string().trim().min(1).max(200).optional(),
   payload: z.record(z.string().max(120), z.unknown()).refine((value) => Object.keys(value).length <= 100, { message: 'Job payload may contain at most 100 fields.' }).refine((value) => JSON.stringify(value).length <= 100000, { message: 'Job payload is too large.' }).default({}),
 })
 
@@ -40,8 +41,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const [scene] = await db.select({ id: scenes.id }).from(scenes).where(and(eq(scenes.id, parsed.data.sceneId), eq(scenes.projectId, id), eq(scenes.userId, session.user.id))).limit(1)
     if (!scene) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   }
-  const [job] = await db.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, payload: parsed.data.payload }).returning()
+  const [job] = await db.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, idempotencyKey: parsed.data.idempotencyKey, payload: parsed.data.payload }).onConflictDoUpdate({ target: [generationJobs.projectId, generationJobs.idempotencyKey], set: { updatedAt: new Date() } }).returning()
   if (!job?.id) return NextResponse.json({ error: 'Generation job could not be created.' }, { status: 500 })
+  if (job.status !== 'QUEUED' || job.attempts > 0) return NextResponse.json({ job, deduplicated: true }, { status: 200 })
   try {
     await enqueueGenerationJob(job.id, parsed.data.payload, parsed.data.type)
   } catch (error) {
