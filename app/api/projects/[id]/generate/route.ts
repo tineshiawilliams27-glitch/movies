@@ -5,7 +5,8 @@ import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { filmBibles, filmCharacters, projects, storyboardShots } from '@/lib/db/schema'
+import { filmBibles, filmCharacters, generationJobs, projects, storyboardShots } from '@/lib/db/schema'
+import { enqueueGenerationJob } from '@/lib/queue'
 
 const requestSchema = z.object({
   kind: z.enum(['story', 'scene', 'character', 'visual', 'audio', 'pipeline']),
@@ -46,7 +47,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await db.insert(filmBibles).values({ userId: session.user.id, projectId: id, logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible }).onConflictDoUpdate({ target: filmBibles.projectId, set: { logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible, updatedAt: new Date() } })
     for (const character of output.characters) await db.insert(filmCharacters).values({ userId: session.user.id, projectId: id, stableKey: character.stableKey, name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity }).onConflictDoUpdate({ target: [filmCharacters.projectId, filmCharacters.stableKey], set: { name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity, updatedAt: new Date() } })
     for (const shot of output.shots) await db.insert(storyboardShots).values({ userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt }).onConflictDoUpdate({ target: [storyboardShots.projectId, storyboardShots.shotNumber], set: { sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt, updatedAt: new Date() } })
-    return NextResponse.json({ output })
+    const queuedJobs = await Promise.all(output.shots.map(async (shot) => {
+      const idempotencyKey = `video:${shot.shotNumber}:${shot.framePrompt}`
+      const [job] = await db.insert(generationJobs).values({
+        userId: session.user.id,
+        projectId: id,
+        type: 'VIDEO_GENERATION',
+        payload: { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood },
+        idempotencyKey,
+      }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
+      if (job) await enqueueGenerationJob(job.id, job.payload as Record<string, unknown>)
+      return job?.id ?? null
+    }))
+    return NextResponse.json({ output, queuedJobIds: queuedJobs.filter(Boolean) })
   }
 
   return NextResponse.json({ result: (result.output as { result: string }).result })
