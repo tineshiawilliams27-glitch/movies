@@ -8,7 +8,7 @@ import { z } from 'zod'
 
 const projectSchema = z.object({
   title: z.string().trim().min(1).max(200),
-  concept: z.string().max(20000).default(''),
+  concept: z.string().default(''),
   format: z.string().max(80).default('Story'),
   durationSeconds: z.coerce.number().finite().nonnegative().max(86400).default(0),
 })

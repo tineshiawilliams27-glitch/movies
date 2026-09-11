@@ -10,7 +10,7 @@ import { enqueueGenerationJob } from '@/lib/queue'
 
 const requestSchema = z.object({
   kind: z.enum(['story', 'scene', 'character', 'visual', 'audio', 'pipeline']),
-  prompt: z.string().trim().min(1).max(12000),
+  prompt: z.string().trim().min(1),
 })
 
 const pipelineSchema = z.object({
