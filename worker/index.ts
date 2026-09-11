@@ -29,6 +29,10 @@ async function processJob(jobId: string, queuedPayload: Record<string, unknown> 
     await report(jobId, { status: 'PROCESSING', progress: 45, stage: `Dispatching ${providerType.toLowerCase()} provider` })
     const payload = { type: providerType, jobId, prompt: queuedPayload.prompt || process.env.VIDEO_PROMPT || 'Cinematic storyboard shot with natural movement and consistent visual identity.', durationSeconds: queuedPayload.durationSeconds || 4, ...queuedPayload }
     const result = await providerFor(providerType)({ jobId, payload })
+      if (result.status === 'NOT_CONFIGURED') {
+        await report(jobId, { status: 'FAILED', progress: 45, stage: 'Provider not configured', error: String(result.result.message ?? 'Provider is not configured.'), result: result.result })
+        return
+      }
       await report(jobId, { status: 'COMPLETED', progress: 100, stage: 'Generation complete', result: { ...result.result, generatedAt: new Date().toISOString() } })
       return
     } catch (error) {

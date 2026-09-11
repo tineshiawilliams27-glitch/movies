@@ -2,17 +2,18 @@ import { getToken } from '@vercel/connect'
 import { put } from '@vercel/blob'
 
 export type ProviderContext = { jobId: string; payload: Record<string, unknown> }
-export type ProviderResult = { result: Record<string, unknown> }
+export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 'NOT_CONFIGURED' }
 export type GenerationProvider = (context: ProviderContext) => Promise<ProviderResult>
 
 const replicateConnector = 'api.replicate.com/film-studio-video-generation'
-const replicateModel = process.env.REPLICATE_VIDEO_MODEL || 'minimax/video-01'
+const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
 
 export const gatewayTextProvider: GenerationProvider = async ({ payload }) => ({
   result: { provider: 'vercel-ai-gateway', model: 'openai/gpt-5-mini', prompt: payload.prompt ?? '' },
 })
 
 async function replicateVideoProvider({ jobId, payload }: ProviderContext): Promise<ProviderResult> {
+  if (!replicateModel) return { status: 'NOT_CONFIGURED', result: { code: 'VIDEO_PROVIDER_NOT_CONFIGURED', message: 'Set REPLICATE_VIDEO_MODEL to enable video generation.' } }
   const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
   const input = {
     prompt: String(payload.prompt ?? 'Cinematic storyboard shot with natural movement and consistent visual identity.'),
@@ -42,7 +43,7 @@ async function replicateVideoProvider({ jobId, payload }: ProviderContext): Prom
 }
 
 export function unavailableProvider(name: string): GenerationProvider {
-  return async () => { throw new Error(`${name} provider is not configured.`) }
+  return async () => ({ status: 'NOT_CONFIGURED', result: { code: 'PROVIDER_NOT_CONFIGURED', provider: name, message: `${name} provider is not configured.` } })
 }
 
 export function providerFor(type: string): GenerationProvider {
