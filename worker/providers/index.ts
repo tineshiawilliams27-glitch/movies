@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { db } from '../../lib/db'
-import { mediaAssets, scenes, timelineItems } from '../../lib/db/schema'
+import { filmCharacters, mediaAssets, scenes, timelineItems } from '../../lib/db/schema'
 import { and, asc, eq } from 'drizzle-orm'
 
 export type ProviderContext = { jobId: string; payload: Record<string, unknown> }
@@ -22,6 +22,9 @@ const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
 const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()
 const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
 const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
+const elevenLabsApiKey = (process.env.ELEVENLABS_API_KEY || process.env.API_KEY || '').trim()
+const elevenLabsVoiceId = (process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM').trim()
+const elevenLabsModelId = (process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2').trim()
 
 const providerConfig = {
   VIDEO_GENERATION: videoProvider,
@@ -163,7 +166,50 @@ const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) =>
   return { result: { provider: 'replicate', model: replicateImageModel, predictionId: prediction.id, assetPathname: blob.pathname, assetId, kind: 'IMAGE' } }
 }
 
+const characterImageProvider: GenerationProvider = async ({ jobId, payload }) => {
+  const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
+  const [owner, model] = replicateImageModel.split('/')
+  if (!owner || !model) throw new Error('REPLICATE_IMAGE_MODEL must use owner/model format.')
+  const prompt = String(payload.prompt ?? 'Photorealistic cinematic character portrait, natural skin texture, expressive eyes, realistic wardrobe, studio lighting, 85mm lens, no text, no watermark.')
+  const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ input: { prompt, aspect_ratio: '4:3', output_format: 'png', safety_tolerance: 2 } }) })
+  if (!created.ok) throw new Error(`Replicate character image request failed with ${created.status}.`)
+  let prediction = await created.json() as { id: string; status: string; output?: string | string[]; error?: string }
+  for (let attempt = 0; attempt < 60 && ['starting', 'processing'].includes(prediction.status); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: { Authorization: `Bearer ${token}` } })
+    if (!response.ok) throw new Error(`Replicate character image polling failed with ${response.status}.`)
+    prediction = await response.json()
+  }
+  if (prediction.status !== 'succeeded' || !prediction.output) throw new Error(prediction.error || `Replicate ended with ${prediction.status}.`)
+  const outputUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output
+  const image = await fetch(outputUrl)
+  if (!image.ok) throw new Error('Replicate returned an unreadable character image.')
+  const blob = await put(`projects/${payload.projectId}/characters/${payload.characterId}/${jobId}.png`, await image.blob(), { access: 'private', contentType: 'image/png', addRandomSuffix: false })
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, 'image/png', 'CHARACTER_REFERENCE', { provider: 'replicate', model: replicateImageModel, predictionId: prediction.id, characterId: payload.characterId })
+  const characterId = typeof payload.characterId === 'string' ? payload.characterId : ''
+  const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
+  const userId = typeof payload.userId === 'string' ? payload.userId : ''
+  if (!characterId || !projectId || !userId) throw new Error('Character image generation requires character, project, and user context.')
+  await db.update(filmCharacters).set({ referenceAssetId: assetId, updatedAt: new Date() }).where(and(eq(filmCharacters.id, characterId), eq(filmCharacters.projectId, projectId), eq(filmCharacters.userId, userId)))
+  return { result: { provider: 'replicate', model: replicateImageModel, predictionId: prediction.id, assetPathname: blob.pathname, assetId, kind: 'CHARACTER_REFERENCE' } }
+}
+
 const imageGenerationProvider: GenerationProvider = async (context) => imageEndpoint ? httpMediaProvider(context, imageEndpoint, 'IMAGE') : unavailableProvider('IMAGE_GENERATION (IMAGE_PROVIDER_URL)')(context)
+const elevenLabsAudioProvider: GenerationProvider = async ({ jobId, payload }) => {
+  if (!elevenLabsApiKey) return { status: 'NOT_CONFIGURED', result: { code: 'ELEVENLABS_NOT_CONFIGURED', message: 'Set ELEVENLABS_API_KEY to enable realistic voice generation.' } }
+  const text = String(payload.text ?? payload.dialogue ?? payload.prompt ?? '').trim()
+  if (!text) throw new Error('Voice generation requires dialogue text.')
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}`, {
+    method: 'POST',
+    headers: { 'xi-api-key': elevenLabsApiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+    body: JSON.stringify({ text, model_id: elevenLabsModelId, voice_settings: { stability: 0.48, similarity_boost: 0.78, style: 0.2, use_speaker_boost: true } }),
+  })
+  if (!response.ok) throw new Error(`ElevenLabs voice generation failed with ${response.status}.`)
+  const blob = await put(`voice-over/${jobId}.mp3`, await response.blob(), { access: 'private', contentType: 'audio/mpeg', addRandomSuffix: false })
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, 'audio/mpeg', 'AUDIO_GENERATED', { provider: 'elevenlabs', voiceId: elevenLabsVoiceId, modelId: elevenLabsModelId, text })
+  return { result: { provider: 'elevenlabs', voiceId: elevenLabsVoiceId, modelId: elevenLabsModelId, assetPathname: blob.pathname, assetId, kind: 'AUDIO' } }
+}
+
 const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('AUDIO_GENERATION (AUDIO_PROVIDER_URL)')(context)
 const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
   if (!ffmpegPath) throw new Error('FFmpeg binary is unavailable in this runtime.')
@@ -208,8 +254,9 @@ export function providerFor(type: string): GenerationProvider {
   if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
   if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return imageGenerationProvider
   if (type === 'IMAGE_GENERATION' && configured === 'replicate') return replicateImageProvider
+  if (type === 'CHARACTER_IMAGE_GENERATION' && configured === 'replicate') return characterImageProvider
   if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http' && audioEndpoint) return audioGenerationProvider
-  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return unavailableProvider('AUDIO_GENERATION (elevenlabs adapter)')
+  if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return elevenLabsAudioProvider
   if ((type === 'TIMELINE' || type === 'VIDEO_EXPORT') && configured === 'local') return videoExportProvider
   return unavailableProvider(`${type} (${configured || 'unknown'})`)
 }

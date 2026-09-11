@@ -51,12 +51,25 @@ export function CharacterManager({ projectId }: { projectId: string }) {
     setMessage('Generating realistic character portrait...')
     try {
       const response = await fetch(`/api/projects/${projectId}/characters/${active.id}/image`, { method: 'POST', credentials: 'include' })
-      const data = await response.json().catch(() => null) as { imageUrl?: string; error?: string } | null
-      if (!response.ok || !data?.imageUrl) {
-        setMessage(data?.error || 'Unable to generate character image')
+      const data = await response.json().catch(() => null) as { job?: { id: string }; error?: string } | null
+      if (!response.ok || !data?.job?.id) {
+        setMessage(data?.error || 'Unable to queue character image generation')
         return
       }
-      setImageUrl(data.imageUrl)
+      let job: { status: string; result?: { assetId?: string } } = { status: 'QUEUED' }
+      for (let attempt = 0; attempt < 90 && !['COMPLETED', 'FAILED', 'DEAD_LETTER'].includes(job.status); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        const statusResponse = await fetch(`/api/jobs/${data.job.id}`, { credentials: 'include', cache: 'no-store' })
+        const statusData = await statusResponse.json().catch(() => null) as { job?: typeof job } | null
+        if (!statusResponse.ok || !statusData?.job) throw new Error('Unable to read image generation status')
+        job = statusData.job
+        setMessage(job.status === 'PROCESSING' ? 'Generating realistic character portrait...' : 'Waiting for portrait worker...')
+      }
+      if (job.status !== 'COMPLETED' || typeof job.result?.assetId !== 'string') {
+        setMessage('Character portrait generation failed')
+        return
+      }
+      setImageUrl(`/api/media/${job.result.assetId}`)
       setMessage('Character portrait generated')
     } catch {
       setMessage('Unable to generate character image. Check your connection.')
