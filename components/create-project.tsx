@@ -53,6 +53,7 @@ export function CreateProject() {
       router.push(`/projects/${data.project.id}`)
     } catch {
       setStatus('error')
+      setErrorMessage('Project could not be saved. Check your connection and try again.')
     }
   }
 
