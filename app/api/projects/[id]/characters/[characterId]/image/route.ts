@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import { put } from '@vercel/blob'
+import { getToken } from '@vercel/connect'
 import { eq, and } from 'drizzle-orm'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
@@ -18,8 +19,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const prompt = body.prompt?.trim() || `Photorealistic cinematic character portrait for a film. Name: ${record.character.name}. Description: ${record.character.description}. Appearance: ${record.character.appearance}. Voice and personality: ${record.character.voice}. Natural skin texture, expressive eyes, realistic wardrobe, studio portrait lighting, 85mm lens, shallow depth of field, no text, no watermark.`
 
   try {
-    const token = process.env.REPLICATE_API_TOKEN
-    if (!token) return NextResponse.json({ error: 'Image generation is not configured.' }, { status: 503 })
+    const token = await getToken('api.replicate.com/film-studio-video-generation', { subject: { type: 'app' }, scopes: ['*'] })
     const model = process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev'
     const [owner, version] = model.split('/')
     if (!owner || !version) throw new Error('REPLICATE_IMAGE_MODEL must use owner/model format.')
