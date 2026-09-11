@@ -19,7 +19,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
-  const sceneId = new URL(request.url).searchParams.get('sceneId')
+  const sceneIdValue = new URL(request.url).searchParams.get('sceneId')
+  const sceneId = sceneIdValue && z.string().uuid().safeParse(sceneIdValue).success ? sceneIdValue : undefined
   const jobs = await db.select().from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id), sceneId ? eq(generationJobs.sceneId, sceneId) : undefined)).orderBy(desc(generationJobs.createdAt)).limit(50)
   return NextResponse.json({ jobs })
 }
@@ -37,6 +38,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!scene) return NextResponse.json({ error: 'Scene not found.' }, { status: 404 })
   }
   const [job] = await db.insert(generationJobs).values({ userId: session.user.id, projectId: id, sceneId: parsed.data.sceneId, type: parsed.data.type, payload: parsed.data.payload }).returning()
+  if (!job?.id) return NextResponse.json({ error: 'Generation job could not be created.' }, { status: 500 })
   try {
     await enqueueGenerationJob(job.id, parsed.data.payload, parsed.data.type)
   } catch (error) {

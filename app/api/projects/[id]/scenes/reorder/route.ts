@@ -6,7 +6,11 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { scenes } from '@/lib/db/schema'
 
-const schema = z.object({ sceneIds: z.array(z.string().uuid()).min(1) })
+const schema = z.object({
+  sceneIds: z.array(z.string().uuid()).min(1).superRefine((sceneIds, context) => {
+    if (new Set(sceneIds).size !== sceneIds.length) context.addIssue({ code: z.ZodIssueCode.custom, message: 'Scene IDs must be unique.' })
+  }),
+})
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })

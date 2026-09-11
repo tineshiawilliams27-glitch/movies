@@ -20,8 +20,9 @@ export function ExportSuite({ projectId }: { projectId: string }) {
         const response = await fetch(`/api/projects/${projectId}/jobs`, { cache: 'no-store' })
         if (!response.ok) return
         const data = await response.json()
-        const job = data.jobs?.find((item: { type: string }) => item.type === 'VIDEO_EXPORT')
-        if (active && job) setLatestJob(job)
+        const jobs = Array.isArray(data.jobs) ? data.jobs : []
+        const job = jobs.find((item: { type?: string }) => item.type === 'VIDEO_EXPORT')
+        if (active && job?.id) setLatestJob(job)
       } catch {
         // Polling is best effort; the next interval can recover from a transient network failure.
       }
@@ -55,7 +56,12 @@ export function ExportSuite({ projectId }: { projectId: string }) {
         return
       }
       const data = await response.json()
-      if (data.job) setLatestJob(data.job)
+      if (!data.job?.id) {
+        setStatus('error')
+        setError('The export was queued without a valid job record. Please try again.')
+        return
+      }
+      setLatestJob(data.job)
       window.setTimeout(() => setStatus('idle'), 2400)
     } catch {
       setStatus('error')

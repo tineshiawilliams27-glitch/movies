@@ -39,11 +39,17 @@ export function TimelineEditor({ projectId }: { projectId: string }) {
         if (cancelled) return
         if (filmResponse.ok) {
           const data = await filmResponse.json()
-          setTimelineItems(data.timeline ?? [])
+          setTimelineItems(Array.isArray(data.timeline) ? data.timeline : [])
+        } else {
+          const data = await filmResponse.json().catch(() => null) as { error?: string } | null
+          setMessage(data?.error || 'Unable to load timeline data')
         }
         if (scenesResponse.ok) {
           const data = await scenesResponse.json()
-          setScenes(data.scenes ?? [])
+          setScenes(Array.isArray(data.scenes) ? data.scenes : [])
+        } else if (filmResponse.ok) {
+          const data = await scenesResponse.json().catch(() => null) as { error?: string } | null
+          setMessage(data?.error || 'Unable to load scenes')
         }
       } catch {
         if (!cancelled) setMessage('Unable to load timeline data. Check your connection.')

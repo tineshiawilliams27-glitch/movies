@@ -15,5 +15,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const characters = await db.select().from(filmCharacters).where(and(eq(filmCharacters.projectId, id), eq(filmCharacters.userId, session.user.id))).orderBy(asc(filmCharacters.createdAt))
   const shots = await db.select().from(storyboardShots).where(and(eq(storyboardShots.projectId, id), eq(storyboardShots.userId, session.user.id))).orderBy(asc(storyboardShots.shotNumber))
   const timeline = await db.select().from(timelineItems).where(and(eq(timelineItems.projectId, id), eq(timelineItems.userId, session.user.id))).orderBy(asc(timelineItems.startSeconds))
-  return NextResponse.json({ bible: bible ?? null, characters, shots, timeline })
+  return NextResponse.json({
+    bible: bible ?? null,
+    characters: Array.isArray(characters) ? characters : [],
+    shots: Array.isArray(shots) ? shots : [],
+    timeline: Array.isArray(timeline) ? timeline : [],
+  })
 }

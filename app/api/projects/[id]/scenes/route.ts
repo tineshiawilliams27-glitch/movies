@@ -41,5 +41,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const existing = await db.select({ sceneNumber: scenes.sceneNumber }).from(scenes).where(and(eq(scenes.projectId, id), eq(scenes.userId, userId))).orderBy(asc(scenes.sceneNumber))
   const sceneNumber = (existing.at(-1)?.sceneNumber ?? 0) + 1
   const [scene] = await db.insert(scenes).values({ ...parsed.data, projectId: id, userId, durationSeconds: String(parsed.data.durationSeconds), sceneNumber }).returning()
+  if (!scene?.id) return NextResponse.json({ error: 'Scene could not be created.' }, { status: 500 })
   return NextResponse.json({ scene }, { status: 201 })
 }
