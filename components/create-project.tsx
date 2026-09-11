@@ -58,6 +58,20 @@ export function CreateProject() {
         return
       }
 
+      const generationResponse = await fetch(`/api/projects/${data.project.id}/generate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ kind: 'pipeline', prompt: trimmedIdea }),
+      })
+      if (!generationResponse.ok) {
+        const generationError = await generationResponse.json().catch(() => null) as { error?: string } | null
+        setStatus('error')
+        setErrorMessage(generationError?.error ?? 'Project saved, but storyboard generation could not start.')
+        router.push(`/projects/${data.project.id}`)
+        return
+      }
+
       setStatus('saved')
       router.push(`/projects/${data.project.id}`)
     } catch {
