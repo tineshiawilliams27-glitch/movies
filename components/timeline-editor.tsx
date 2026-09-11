@@ -28,20 +28,32 @@ export function TimelineEditor({ projectId }: { projectId: string }) {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}/film`).then(async (response) => {
-      if (response.ok) {
-        const data = await response.json()
-        setTimelineItems(data.timeline ?? [])
-      }
-    }).catch(() => undefined)
-  }, [projectId])
+    let cancelled = false
 
-  useEffect(() => {
-    fetch(`/api/projects/${projectId}/scenes`).then(async (response) => {
-      const data = await response.json()
-      if (response.ok) setScenes(data.scenes)
-      setLoading(false)
-    }).catch(() => setLoading(false))
+    async function loadTimeline() {
+      try {
+        const [filmResponse, scenesResponse] = await Promise.all([
+          fetch(`/api/projects/${projectId}/film`, { cache: 'no-store' }),
+          fetch(`/api/projects/${projectId}/scenes`, { cache: 'no-store' }),
+        ])
+        if (cancelled) return
+        if (filmResponse.ok) {
+          const data = await filmResponse.json()
+          setTimelineItems(data.timeline ?? [])
+        }
+        if (scenesResponse.ok) {
+          const data = await scenesResponse.json()
+          setScenes(data.scenes ?? [])
+        }
+      } catch {
+        if (!cancelled) setMessage('Unable to load timeline data')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    loadTimeline()
+    return () => { cancelled = true }
   }, [projectId])
 
   const totalSeconds = useMemo(() => timelineItems.length > 0 ? timelineItems.reduce((total, item) => Math.max(total, Number(item.startSeconds || 0) + Number(item.durationSeconds || 0)), 0) : scenes.reduce((total, scene) => total + Number(scene.durationSeconds || 0), 0), [scenes, timelineItems])
