@@ -53,14 +53,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       await tx.insert(filmBibles).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, logline: output.logline, premise: output.premise, midpoint: output.midpoint, climax: output.climax, themes: output.themes, acts: output.acts, screenplay: output.screenplay, styleBible: output.styleBible })
       for (const character of output.characters) await tx.insert(filmCharacters).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, stableKey: character.stableKey, name: character.name, role: character.role, description: character.description, appearance: character.appearance, voiceIdentity: character.voiceIdentity })
       for (const shot of output.shots) await tx.insert(storyboardShots).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, shotNumber: shot.shotNumber, sceneLabel: shot.sceneLabel, title: shot.title, description: shot.description, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood, dialogue: shot.dialogue, effects: shot.effects, durationSeconds: String(shot.durationSeconds), continuityNotes: shot.continuityNotes, framePrompt: shot.framePrompt })
-      const jobs: Array<{ id: string; payload: Record<string, unknown> }> = []
+      const jobs: Array<{ id: string; type: string; payload: Record<string, unknown> }> = []
       for (const shot of output.shots) {
         const idempotencyKey = `video:${createdRun.version}:${shot.shotNumber}:${shot.framePrompt}`
         const payload = { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, shotType: shot.shotType, cameraMovement: shot.cameraMovement, lighting: shot.lighting, mood: shot.mood }
         const [createdJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: 'VIDEO_GENERATION', payload, idempotencyKey }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
         if (createdJob) {
           await tx.insert(generationOutbox).values({ jobId: createdJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdJob.id, type: 'VIDEO_GENERATION', payload } })
-          jobs.push({ id: createdJob.id, payload })
+          jobs.push({ id: createdJob.id, type: 'VIDEO_GENERATION', payload })
+        }
+        const stageJobs = [
+          { type: 'IMAGE_GENERATION', payload: { shotNumber: shot.shotNumber, prompt: shot.framePrompt, durationSeconds: shot.durationSeconds, stage: 'visual' } },
+          { type: 'AUDIO_GENERATION', payload: { shotNumber: shot.shotNumber, prompt: shot.dialogue || `Ambient sound design for ${shot.title}`, durationSeconds: shot.durationSeconds, stage: 'voice' } },
+          { type: 'VIDEO_EXPORT', payload: { shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline' } },
+        ]
+        for (const stageJob of stageJobs) {
+          const [createdStageJob] = await tx.insert(generationJobs).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, type: stageJob.type, payload: stageJob.payload, idempotencyKey: `${stageJob.type.toLowerCase()}:${createdRun.version}:${shot.shotNumber}` }).onConflictDoNothing({ target: [generationJobs.projectId, generationJobs.idempotencyKey] }).returning()
+          if (createdStageJob) {
+            await tx.insert(generationOutbox).values({ jobId: createdStageJob.id, eventType: 'GENERATION_JOB_QUEUED', payload: { jobId: createdStageJob.id, type: stageJob.type, payload: stageJob.payload } })
+            jobs.push({ id: createdStageJob.id, type: stageJob.type, payload: stageJob.payload })
+          }
         }
         await tx.insert(timelineItems).values({ userId: session.user.id, projectId: id, generationRunId: createdRun.id, version: createdRun.version, trackType: 'VIDEO', label: `Shot ${shot.shotNumber}`, startSeconds: '0', durationSeconds: String(shot.durationSeconds), content: shot.framePrompt, metadata: { generationRunId: createdRun.id, shotNumber: shot.shotNumber, version: createdRun.version } })
       }
@@ -69,8 +81,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       console.error('[v0] pipeline transaction rolled back', error)
       throw error
     })
-    await Promise.all(jobs.map((job) => enqueueGenerationJob(job.id, job.payload, 'VIDEO_GENERATION')))
-    return NextResponse.json({ output, queuedJobIds: jobs.map((job) => job.id) })
+    await Promise.all(jobs.map((job) => enqueueGenerationJob(job.id, job.payload, job.type)))
+    return NextResponse.json({ output, queuedJobIds: jobs.map((job) => job.id), workflow: { treatment: 'COMPLETED', scenes: 'COMPLETED', visuals: 'QUEUED', voices: 'QUEUED', timeline: 'QUEUED' } })
   }
 
   return NextResponse.json({ result: (result.output as { result: string }).result })
