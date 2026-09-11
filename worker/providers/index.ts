@@ -6,7 +6,17 @@ export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 
 export type GenerationProvider = (context: ProviderContext) => Promise<ProviderResult>
 
 const replicateConnector = 'api.replicate.com/film-studio-video-generation'
+const videoProvider = (process.env.VIDEO_PROVIDER || 'local').trim().toLowerCase()
+const imageProvider = (process.env.IMAGE_PROVIDER || 'local').trim().toLowerCase()
+const voiceProvider = (process.env.VOICE_PROVIDER || 'local').trim().toLowerCase()
 const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
+
+const providerConfig = {
+  VIDEO_GENERATION: videoProvider,
+  IMAGE_GENERATION: imageProvider,
+  AUDIO_GENERATION: voiceProvider,
+  VOICE_GENERATION: voiceProvider,
+} as const
 
 export const gatewayTextProvider: GenerationProvider = async ({ payload }) => ({
   result: { provider: 'vercel-ai-gateway', model: 'openai/gpt-5-mini', prompt: payload.prompt ?? '' },
@@ -47,7 +57,13 @@ export function unavailableProvider(name: string): GenerationProvider {
 }
 
 export function providerFor(type: string): GenerationProvider {
-  if (type === 'VIDEO_GENERATION') return replicateVideoProvider
   if (type === 'PIPELINE_GENERATION' || type === 'TEXT_GENERATION') return gatewayTextProvider
-  return unavailableProvider(type)
+  const configured = providerConfig[type as keyof typeof providerConfig]
+  if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
+  if (configured === 'local' || !configured) return unavailableProvider(`${type} (${configured || 'unknown'})`)
+  return unavailableProvider(`${type} (${configured})`)
+}
+
+export function configuredProviders() {
+  return { ...providerConfig }
 }
