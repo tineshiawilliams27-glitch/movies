@@ -80,7 +80,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         const stageJobs = [
           { type: 'IMAGE_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, prompt: `${shot.framePrompt}\n\nScene: ${shot.sceneLabel}. Shot type: ${shot.shotType}. Camera movement: ${shot.cameraMovement}. Lighting: ${shot.lighting}. Mood: ${shot.mood}. Preserve character and location continuity across the film.`, durationSeconds: shot.durationSeconds, aspectRatio: '16:9', stage: 'visual' } },
           { type: 'AUDIO_GENERATION', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, text: shot.dialogue || `Ambient sound design for ${shot.title}`, prompt: shot.dialogue || `Ambient sound design for ${shot.title}`, durationSeconds: shot.durationSeconds, stage: 'voice' } },
-          { type: 'TIMELINE', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline' } },
+          { type: 'TIMELINE', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, sceneId: shot.sceneLabel, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'timeline' } },
           { type: 'VIDEO_EXPORT', payload: { userId: session.user.id, projectId: id, shotNumber: shot.shotNumber, format: 'mp4', resolution: '1080p', frameRate: 24, aspectRatio: '16:9', stage: 'export' } },
         ]
         for (const stageJob of stageJobs) {

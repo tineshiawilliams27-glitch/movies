@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { db } from '../../lib/db'
 import { filmCharacters, mediaAssets, scenes, timelineItems } from '../../lib/db/schema'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 
 export type ProviderContext = { jobId: string; payload: Record<string, unknown> }
 export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 'NOT_CONFIGURED' }
@@ -31,6 +31,7 @@ const providerConfig = {
   IMAGE_GENERATION: imageProvider,
   AUDIO_GENERATION: voiceProvider,
   VOICE_GENERATION: voiceProvider,
+  TIMELINE: configured(process.env.TIMELINE_PROVIDER, 'local'),
   VIDEO_EXPORT: configured(process.env.VIDEO_EXPORT_PROVIDER, 'local'),
 } as const
 
@@ -211,6 +212,17 @@ const elevenLabsAudioProvider: GenerationProvider = async ({ jobId, payload }) =
 }
 
 const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('AUDIO_GENERATION (AUDIO_PROVIDER_URL)')(context)
+const timelineProvider: GenerationProvider = async ({ jobId, payload }) => {
+  const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
+  const userId = typeof payload.userId === 'string' ? payload.userId : ''
+  const shotNumber = Number(payload.shotNumber)
+  if (!projectId || !userId || !Number.isFinite(shotNumber)) throw new Error('Timeline generation requires project, user, and shot context.')
+  const shotPrefix = Number.isFinite(shotNumber) ? String(shotNumber) : ''
+  const [asset] = await db.select({ id: mediaAssets.id, pathname: mediaAssets.pathname, contentType: mediaAssets.contentType }).from(mediaAssets).where(and(eq(mediaAssets.projectId, projectId), eq(mediaAssets.userId, userId), eq(mediaAssets.kind, 'VIDEO_CLIP'))).orderBy(desc(mediaAssets.createdAt)).limit(1)
+  if (!asset) throw new Error(`No generated video asset is available for shot ${shotNumber}.`)
+  return { result: { provider: 'timeline', assetId: asset.id, assetPathname: asset.pathname, contentType: asset.contentType, shotNumber, shotKey: shotPrefix, jobId } }
+}
+
 const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
   if (!ffmpegPath) throw new Error('FFmpeg binary is unavailable in this runtime.')
   const executablePath = ffmpegPath
@@ -264,7 +276,8 @@ export function providerFor(type: string): GenerationProvider {
   if (type === 'CHARACTER_IMAGE_GENERATION' && configured === 'replicate') return characterImageProvider
   if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http' && audioEndpoint) return audioGenerationProvider
   if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return elevenLabsAudioProvider
-  if ((type === 'TIMELINE' || type === 'VIDEO_EXPORT') && configured === 'local') return videoExportProvider
+  if (type === 'TIMELINE' && configured === 'local') return timelineProvider
+  if (type === 'VIDEO_EXPORT' && configured === 'local') return videoExportProvider
   return unavailableProvider(`${type} (${configured || 'unknown'})`)
 }
 
