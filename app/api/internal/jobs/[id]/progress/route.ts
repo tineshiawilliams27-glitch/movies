@@ -21,7 +21,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (job.type === 'VIDEO_GENERATION' && Number.isInteger(shotNumber) && shotNumber > 0) {
     await db.update(storyboardShots).set({ status: parsed.data.status, clipAssetId: typeof result.assetId === 'string' ? result.assetId : undefined, updatedAt: new Date() }).where(and(eq(storyboardShots.projectId, job.projectId), eq(storyboardShots.shotNumber, shotNumber)))
     if (parsed.data.status === 'COMPLETED' && typeof result.assetPathname === 'string') {
-      await db.insert(timelineItems).values({ userId: job.userId, projectId: job.projectId, trackType: 'VIDEO', label: `Shot ${shotNumber}`, startSeconds: '0', durationSeconds: String(payload.durationSeconds ?? 4), content: result.assetPathname, metadata: { jobId: job.id, provider: result.provider ?? 'replicate' } })
+      const [existingTimelineItem] = await db.select({ id: timelineItems.id }).from(timelineItems).where(and(eq(timelineItems.projectId, job.projectId), eq(timelineItems.trackType, 'VIDEO'), eq(timelineItems.label, `Shot ${shotNumber}`), eq(timelineItems.content, result.assetPathname))).limit(1)
+      if (!existingTimelineItem) {
+        await db.insert(timelineItems).values({ userId: job.userId, projectId: job.projectId, trackType: 'VIDEO', label: `Shot ${shotNumber}`, startSeconds: '0', durationSeconds: String(payload.durationSeconds ?? 4), content: result.assetPathname, metadata: { jobId: job.id, provider: result.provider ?? 'replicate' } })
+      }
     }
   }
   return NextResponse.json({ job })
