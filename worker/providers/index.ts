@@ -1,5 +1,8 @@
 import { getToken } from '@vercel/connect'
 import { put } from '@vercel/blob'
+import { db } from '../../lib/db'
+import { scenes } from '../../lib/db/schema'
+import { and, eq } from 'drizzle-orm'
 
 export type ProviderContext = { jobId: string; payload: Record<string, unknown> }
 export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 'NOT_CONFIGURED' }
@@ -25,6 +28,31 @@ const providerConfig = {
 export const gatewayTextProvider: GenerationProvider = async ({ payload }) => ({
   result: { provider: 'vercel-ai-gateway', model: 'openai/gpt-5-mini', prompt: payload.prompt ?? '' },
 })
+
+const sceneBreakdownProvider: GenerationProvider = async ({ payload }) => {
+  const userId = typeof payload.userId === 'string' ? payload.userId : ''
+  const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
+  const shots = Array.isArray(payload.shots) ? payload.shots : []
+  if (!userId || !projectId || shots.length === 0) throw new Error('Scene breakdown requires an owner, project, and generated shots.')
+  const grouped = new Map<string, Record<string, unknown>>()
+  for (const item of shots) {
+    if (!item || typeof item !== 'object') continue
+    const shot = item as Record<string, unknown>
+    const label = typeof shot.sceneLabel === 'string' && shot.sceneLabel.trim() ? shot.sceneLabel.trim() : 'Scene'
+    const current = grouped.get(label)
+    if (current) {
+      current.description = `${String(current.description || '')}\n\n${String(shot.description || '')}`.trim()
+      current.dialogue = `${String(current.dialogue || '')}\n${String(shot.dialogue || '')}`.trim()
+      current.durationSeconds = Number(current.durationSeconds || 0) + Number(shot.durationSeconds || 0)
+    } else grouped.set(label, { title: typeof shot.title === 'string' ? shot.title : label, description: shot.description || '', dialogue: shot.dialogue || '', location: shot.location || label, durationSeconds: Number(shot.durationSeconds || 0), metadata: { source: 'SCENE_BREAKDOWN', shotNumbers: [shot.shotNumber] } })
+  }
+  let sceneNumber = 1
+  for (const scene of grouped.values()) {
+    await db.insert(scenes).values({ userId, projectId, sceneNumber, title: String(scene.title), description: String(scene.description), dialogue: String(scene.dialogue), location: String(scene.location), durationSeconds: String(scene.durationSeconds), metadata: scene.metadata as Record<string, unknown> }).onConflictDoNothing()
+    sceneNumber += 1
+  }
+  return { result: { provider: 'scene-breakdown-worker', scenesCreated: grouped.size } }
+}
 
 async function replicateVideoProvider({ jobId, payload }: ProviderContext): Promise<ProviderResult> {
   if (!replicateModel) return { status: 'NOT_CONFIGURED', result: { code: 'VIDEO_PROVIDER_NOT_CONFIGURED', message: 'Set REPLICATE_VIDEO_MODEL to enable video generation.' } }
@@ -81,6 +109,7 @@ const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
 }
 
 export function providerFor(type: string): GenerationProvider {
+  if (type === 'SCENE_BREAKDOWN') return sceneBreakdownProvider
   if (type === 'PIPELINE_GENERATION' || type === 'TEXT_GENERATION') return gatewayTextProvider
   const configured = providerConfig[type as keyof typeof providerConfig]
   if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
