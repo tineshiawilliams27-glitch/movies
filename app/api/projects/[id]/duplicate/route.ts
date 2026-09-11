@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { and, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
+import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { characters, generationJobs, mediaAssets, projects, scenes } from '@/lib/db/schema'
@@ -9,6 +10,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
   const { id } = await params
+  if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const [source] = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
   if (!source) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const result = await db.transaction(async (tx) => {
@@ -20,5 +22,6 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     if (sourceCharacters.length) await tx.insert(characters).values(sourceCharacters.map((character) => ({ userId: session.user.id, projectId: copy.id, name: character.name, description: character.description, appearance: character.appearance, voice: character.voice, metadata: character.metadata })))
     return copy
   })
+  if (!result?.id) return NextResponse.json({ error: 'Project copy could not be created.' }, { status: 500 })
   return NextResponse.json({ project: result }, { status: 201 })
 }
