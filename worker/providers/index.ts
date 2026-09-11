@@ -19,6 +19,7 @@ const videoProvider = configured(process.env.VIDEO_PROVIDER ?? process.env.VIDEO
 const imageProvider = configured(process.env.IMAGE_PROVIDER, 'replicate')
 const voiceProvider = configured(process.env.VOICE_PROVIDER ?? process.env.AUDIO_PROVIDER, 'elevenlabs')
 const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
+const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()
 const imageEndpoint = process.env.IMAGE_PROVIDER_URL?.trim()
 const audioEndpoint = process.env.AUDIO_PROVIDER_URL?.trim()
 
@@ -130,6 +131,38 @@ async function httpMediaProvider({ jobId, payload }: ProviderContext, endpoint: 
   return { result: { provider: endpoint, assetPathname: blob.pathname, assetId, kind, durationSeconds: data.durationSeconds } }
 }
 
+const replicateImageProvider: GenerationProvider = async ({ jobId, payload }) => {
+  const token = await getToken(replicateConnector, { subject: { type: 'app' }, scopes: ['*'] })
+  const [owner, model] = replicateImageModel.split('/')
+  if (!owner || !model) throw new Error('REPLICATE_IMAGE_MODEL must use owner/model format.')
+  const created = await fetch(`https://api.replicate.com/v1/models/${owner}/${model}/predictions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ input: {
+      prompt: String(payload.prompt ?? 'Cinematic storyboard frame with consistent character identity and clear composition.'),
+      aspect_ratio: String(payload.aspectRatio ?? '16:9'),
+      output_format: 'png',
+      safety_tolerance: 2,
+    } }),
+  })
+  if (!created.ok) throw new Error(`Replicate image prediction failed with ${created.status}.`)
+  let prediction = await created.json() as { id: string; status: string; output?: string | string[]; error?: string }
+  for (let attempt = 0; attempt < 60 && ['starting', 'processing'].includes(prediction.status); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const response = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, { headers: { Authorization: `Bearer ${token}` } })
+    if (!response.ok) throw new Error(`Replicate image polling failed with ${response.status}.`)
+    prediction = await response.json()
+  }
+  if (prediction.status !== 'succeeded' || !prediction.output) throw new Error(prediction.error || `Replicate image generation ended with ${prediction.status}.`)
+  const outputUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output
+  const image = await fetch(outputUrl)
+  if (!image.ok) throw new Error('Replicate returned an unreadable storyboard image.')
+  const contentType = image.headers.get('content-type') || 'image/png'
+  const blob = await put(`storyboard-images/${jobId}.png`, await image.blob(), { access: 'private', contentType, addRandomSuffix: false })
+  const assetId = await persistGeneratedMedia(payload, blob.pathname, contentType, 'IMAGE_GENERATED', { provider: 'replicate', model: replicateImageModel, predictionId: prediction.id, shotNumber: payload.shotNumber })
+  return { result: { provider: 'replicate', model: replicateImageModel, predictionId: prediction.id, assetPathname: blob.pathname, assetId, kind: 'IMAGE' } }
+}
+
 const imageGenerationProvider: GenerationProvider = async (context) => imageEndpoint ? httpMediaProvider(context, imageEndpoint, 'IMAGE') : unavailableProvider('IMAGE_GENERATION (IMAGE_PROVIDER_URL)')(context)
 const audioGenerationProvider: GenerationProvider = async (context) => audioEndpoint ? httpMediaProvider(context, audioEndpoint, 'AUDIO') : unavailableProvider('AUDIO_GENERATION (AUDIO_PROVIDER_URL)')(context)
 const videoExportProvider: GenerationProvider = async ({ jobId, payload }) => {
@@ -174,7 +207,7 @@ export function providerFor(type: string): GenerationProvider {
   const configured = providerConfig[type as keyof typeof providerConfig]
   if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
   if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return imageGenerationProvider
-  if (type === 'IMAGE_GENERATION' && configured === 'replicate') return unavailableProvider('IMAGE_GENERATION (replicate adapter)')
+  if (type === 'IMAGE_GENERATION' && configured === 'replicate') return replicateImageProvider
   if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'http' && audioEndpoint) return audioGenerationProvider
   if ((type === 'AUDIO_GENERATION' || type === 'VOICE_GENERATION') && configured === 'elevenlabs') return unavailableProvider('AUDIO_GENERATION (elevenlabs adapter)')
   if ((type === 'TIMELINE' || type === 'VIDEO_EXPORT') && configured === 'local') return videoExportProvider
