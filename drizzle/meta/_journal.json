@@ -1,1 +1,19 @@
-{"version":"7","dialect":"postgresql","entries":[]}
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    { "idx": 0, "version": "7", "when": 1704067200000, "tag": "0001_initial_schema", "breakpoints": true },
+    { "idx": 1, "version": "7", "when": 1704153600000, "tag": "0002_generation_job_idempotency", "breakpoints": true },
+    { "idx": 2, "version": "7", "when": 1704240000000, "tag": "0003_generation_outbox", "breakpoints": true },
+    { "idx": 3, "version": "7", "when": 1704326400000, "tag": "0004_timeline_ordering", "breakpoints": true },
+    { "idx": 4, "version": "7", "when": 1704412800000, "tag": "0005_generation_versions", "breakpoints": true },
+    { "idx": 5, "version": "7", "when": 1704499200000, "tag": "0006_schema_completion", "breakpoints": true },
+    { "idx": 6, "version": "7", "when": 1704585600000, "tag": "0007_media_assets", "breakpoints": true },
+    { "idx": 7, "version": "7", "when": 1704672000000, "tag": "0008_scene_constraints", "breakpoints": true },
+    { "idx": 8, "version": "7", "when": 1704758400000, "tag": "0009_timeline_versions", "breakpoints": true },
+    { "idx": 9, "version": "7", "when": 1704844800000, "tag": "0010_asset_reference_foreign_keys", "breakpoints": true },
+    { "idx": 10, "version": "7", "when": 1704931200000, "tag": "0011_auth_relationships", "breakpoints": true },
+    { "idx": 11, "version": "7", "when": 1705017600000, "tag": "0012_updated_at_triggers", "breakpoints": true },
+    { "idx": 12, "version": "7", "when": 1705104000000, "tag": "0013_relationship_indexes", "breakpoints": true }
+  ]
+}
