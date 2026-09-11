@@ -60,10 +60,11 @@ export function StoryboardEditor({ projectId }: { projectId: string }) {
     try {
       const response = await fetch(`/api/projects/${projectId}/scenes/reorder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sceneIds: reordered.map((scene) => scene.id) }) })
       if (!response.ok) {
-        setMessage('Reorder failed')
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        setMessage(data?.error || 'Reorder failed')
         const result = await fetch(`/api/projects/${projectId}/scenes`, { cache: 'no-store' })
-        const data = await result.json()
-        if (result.ok) setScenes(data.scenes ?? [])
+        const resultData = await result.json()
+        if (result.ok) setScenes(Array.isArray(resultData.scenes) ? resultData.scenes : [])
       }
     } catch { setMessage('Reorder failed. Check your connection.') }
   }
@@ -72,7 +73,7 @@ export function StoryboardEditor({ projectId }: { projectId: string }) {
     try {
       const response = await fetch(`/api/projects/${projectId}/scenes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: `Scene ${scenes.length + 1}`, description: 'Describe the visual beat for this scene.', dialogue: '', location: 'New location', timeOfDay: 'Day', durationSeconds: 10 }) })
       const data = await response.json()
-      if (response.ok) setScenes((current) => [...current, data.scene])
+      if (response.ok && data.scene?.id) setScenes((current) => [...current, data.scene])
       else setMessage(data.error || 'Scene could not be added')
     } catch { setMessage('Scene could not be added. Check your connection.') }
   }
