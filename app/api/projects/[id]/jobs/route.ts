@@ -8,7 +8,7 @@ import { generationJobs, generationOutbox, projects, scenes } from '@/lib/db/sch
 import { enqueueGenerationJob } from '@/lib/queue'
 
 const createJobSchema = z.object({
-  type: z.enum(['STORY_GENERATION', 'IMAGE_GENERATION', 'VIDEO_GENERATION', 'VOICE_GENERATION', 'VIDEO_RENDER', 'VIDEO_EXPORT']),
+  type: z.enum(['STORY_GENERATION', 'IMAGE_GENERATION', 'VIDEO_GENERATION', 'AUDIO_GENERATION', 'VOICE_GENERATION', 'VIDEO_RENDER', 'VIDEO_EXPORT']),
   sceneId: z.string().uuid().optional(),
   idempotencyKey: z.string().trim().min(1).max(200).optional(),
   payload: z.record(z.string().max(120), z.unknown()).refine((value) => Object.keys(value).length <= 100, { message: 'Job payload may contain at most 100 fields.' }).refine((value) => JSON.stringify(value).length <= 100000, { message: 'Job payload is too large.' }).default({}),

@@ -27,7 +27,8 @@ async function processJob(jobId: string, queuedPayload: Record<string, unknown> 
     try {
     await report(jobId, { status: 'PROCESSING', progress: 10, stage: 'Worker accepted job' })
     const providerType = typeof queuedPayload.type === 'string' ? queuedPayload.type : jobType ?? 'VIDEO_GENERATION'
-    await report(jobId, { status: 'PROCESSING', progress: 45, stage: `Dispatching ${providerType.toLowerCase()} provider` })
+    const stageLabels: Record<string, string> = { PIPELINE_GENERATION: 'Building editable story treatment', SCENE_BREAKDOWN: 'Breaking treatment into scenes', IMAGE_GENERATION: 'Generating visuals', AUDIO_GENERATION: 'Generating voices', VOICE_GENERATION: 'Generating voices', VIDEO_EXPORT: 'Building timeline export', VIDEO_GENERATION: 'Generating clips' }
+    await report(jobId, { status: 'PROCESSING', progress: 45, stage: stageLabels[providerType] || `Dispatching ${providerType.toLowerCase()} provider` })
     const payload = { type: providerType, jobId, prompt: queuedPayload.prompt || process.env.VIDEO_PROMPT || 'Cinematic storyboard shot with natural movement and consistent visual identity.', durationSeconds: queuedPayload.durationSeconds || 4, ...queuedPayload }
     const result = await providerFor(providerType)({ jobId, payload })
       if (result.status === 'NOT_CONFIGURED') {
