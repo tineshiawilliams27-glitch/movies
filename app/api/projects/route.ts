@@ -17,7 +17,7 @@ export async function GET() {
   const userId = await getUserId()
   if (!userId) return NextResponse.json({ error: 'Authentication is required for project access.' }, { status: 401 })
   const rows = await db.select().from(projects).where(eq(projects.userId, userId)).orderBy(desc(projects.updatedAt))
-  return NextResponse.json({ projects: rows })
+  return NextResponse.json({ projects: Array.isArray(rows) ? rows : [] })
 }
 
 export async function POST(request: Request) {
