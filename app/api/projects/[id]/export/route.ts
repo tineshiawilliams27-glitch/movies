@@ -17,7 +17,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const timeline = await db.select().from(timelineItems).where(and(eq(timelineItems.projectId, id), eq(timelineItems.userId, session.user.id))).orderBy(asc(timelineItems.startSeconds))
   const media = await db.select().from(mediaAssets).where(and(eq(mediaAssets.projectId, id), eq(mediaAssets.userId, session.user.id))).orderBy(asc(mediaAssets.createdAt))
   return NextResponse.json(
-    { version: 1, exportedAt: new Date().toISOString(), project, bible: bible ?? null, characters, shots, timeline, media },
+    {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      project,
+      bible: bible ?? null,
+      characters: Array.isArray(characters) ? characters : [],
+      shots: Array.isArray(shots) ? shots : [],
+      timeline: Array.isArray(timeline) ? timeline : [],
+      media: Array.isArray(media) ? media : [],
+    },
     { headers: { 'Content-Disposition': 'attachment; filename="film-project-manifest.json"', 'Cache-Control': 'private, no-store' } },
   )
 }
