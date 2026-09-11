@@ -9,7 +9,7 @@ const appUrl = process.env.APP_URL?.replace(/\/$/, '')
 const workerToken = process.env.WORKER_TOKEN
 const maxAttempts = Math.max(1, Number(process.env.WORKER_MAX_ATTEMPTS || 3))
 const retryDelayMs = Math.max(1000, Number(process.env.WORKER_RETRY_DELAY_MS || 5000))
-type Progress = { status: 'PROCESSING' | 'COMPLETED' | 'FAILED'; progress: number; stage: string; error?: string; result?: Record<string, unknown> }
+type Progress = { status: 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'DEAD_LETTER'; progress: number; stage: string; error?: string; result?: Record<string, unknown> }
 type QueuedJob = { jobId: string; type?: string; payload?: Record<string, unknown> }
 
 async function report(jobId: string, payload: Progress) {
@@ -42,7 +42,7 @@ async function processJob(jobId: string, queuedPayload: Record<string, unknown> 
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs * 2 ** (attempt - 1)))
         continue
       }
-      await report(jobId, { status: 'FAILED', progress: 45, stage: 'Generation failed', error: message }).catch((callbackError) => console.error('[v0] worker callback failed', callbackError))
+      await report(jobId, { status: 'DEAD_LETTER', progress: 45, stage: 'Generation moved to dead letter', error: message }).catch((callbackError) => console.error('[v0] worker callback failed', callbackError))
     }
   }
 }

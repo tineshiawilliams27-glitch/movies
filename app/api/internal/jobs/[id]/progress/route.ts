@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { generationJobs, storyboardShots, timelineItems } from '@/lib/db/schema'
 
 const progressSchema = z.object({
-  status: z.enum(['QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED']),
+  status: z.enum(['QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'DEAD_LETTER']),
   progress: z.number().int().min(0).max(100),
   stage: z.string().trim().min(1).max(120),
   error: z.string().trim().max(2000).optional(),
@@ -22,7 +22,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Job not found.' }, { status: 404 })
   const [current] = await db.select().from(generationJobs).where(eq(generationJobs.id, id)).limit(1)
   if (!current) return NextResponse.json({ error: 'Job not found.' }, { status: 404 })
-  const terminalStatuses = new Set(['COMPLETED', 'FAILED', 'CANCELLED'])
+  const terminalStatuses = new Set(['COMPLETED', 'FAILED', 'CANCELLED', 'DEAD_LETTER'])
   if (terminalStatuses.has(current.status) || parsed.data.progress < current.progress) return NextResponse.json({ job: current, ignored: true }, { status: 200 })
   const [job] = await db.update(generationJobs).set({ ...parsed.data, updatedAt: new Date() }).where(and(eq(generationJobs.id, id), eq(generationJobs.progress, current.progress), eq(generationJobs.status, current.status))).returning()
   if (!job) return NextResponse.json({ error: 'Progress update conflicted with a newer update.' }, { status: 409 })
