@@ -46,12 +46,24 @@ const sceneBreakdownProvider: GenerationProvider = async ({ payload }) => {
       current.durationSeconds = Number(current.durationSeconds || 0) + Number(shot.durationSeconds || 0)
     } else grouped.set(label, { title: typeof shot.title === 'string' ? shot.title : label, description: shot.description || '', dialogue: shot.dialogue || '', location: shot.location || label, durationSeconds: Number(shot.durationSeconds || 0), metadata: { source: 'SCENE_BREAKDOWN', shotNumbers: [shot.shotNumber] } })
   }
-  let sceneNumber = 1
-  for (const scene of grouped.values()) {
-    await db.insert(scenes).values({ userId, projectId, sceneNumber, title: String(scene.title), description: String(scene.description), dialogue: String(scene.dialogue), location: String(scene.location), durationSeconds: String(scene.durationSeconds), metadata: scene.metadata as Record<string, unknown> }).onConflictDoNothing()
-    sceneNumber += 1
-  }
-  return { result: { provider: 'scene-breakdown-worker', scenesCreated: grouped.size } }
+  const generatedScenes = Array.from(grouped.values())
+  await db.transaction(async (tx) => {
+    await tx.delete(scenes).where(and(eq(scenes.projectId, projectId), eq(scenes.userId, userId)))
+    for (const [index, scene] of generatedScenes.entries()) {
+      await tx.insert(scenes).values({
+        userId,
+        projectId,
+        sceneNumber: index + 1,
+        title: String(scene.title),
+        description: String(scene.description),
+        dialogue: String(scene.dialogue),
+        location: String(scene.location),
+        durationSeconds: String(scene.durationSeconds),
+        metadata: { ...(scene.metadata as Record<string, unknown>), generatedAt: new Date().toISOString() },
+      })
+    }
+  })
+  return { result: { provider: 'scene-breakdown-worker', scenesCreated: generatedScenes.length, replacedExistingScenes: true } }
 }
 
 async function replicateVideoProvider({ jobId, payload }: ProviderContext): Promise<ProviderResult> {
