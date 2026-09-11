@@ -1,4 +1,4 @@
-import { put } from '@vercel/blob'
+import { del, put } from '@vercel/blob'
 import { NextResponse } from 'next/server'
 import { and, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
@@ -18,7 +18,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const assets = await db.select().from(mediaAssets).where(and(eq(mediaAssets.projectId, id), eq(mediaAssets.userId, session.user.id)))
-  return NextResponse.json({ assets: Array.isArray(assets) ? assets : [] })
+  return NextResponse.json({ assets: assets.map(({ pathname: _pathname, ...asset }) => ({ ...asset, deliveryUrl: `/api/media/${asset.id}` })) })
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -48,7 +48,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 200) || 'upload'
   const pathname = `projects/${id}/uploads/${crypto.randomUUID()}-${safeFilename}`
   const blob = await put(pathname, file, { access: 'private', contentType: file.type, addRandomSuffix: false })
-  const [asset] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, sceneId, kind, pathname: blob.pathname, contentType: file.type }).returning()
-  if (!asset?.id) return NextResponse.json({ error: 'Media record could not be created.' }, { status: 500 })
-  return NextResponse.json({ asset }, { status: 201 })
+  try {
+    const [asset] = await db.insert(mediaAssets).values({ userId: session.user.id, projectId: id, sceneId, kind, pathname: blob.pathname, contentType: file.type }).returning()
+    if (!asset?.id) throw new Error('Media record could not be created.')
+    const { pathname: _pathname, ...publicAsset } = asset
+    return NextResponse.json({ asset: { ...publicAsset, deliveryUrl: `/api/media/${asset.id}` } }, { status: 201 })
+  } catch (error) {
+    await del(blob.url).catch((cleanupError) => console.error('[v0] private media cleanup failed', cleanupError))
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Media record could not be created.' }, { status: 500 })
+  }
 }

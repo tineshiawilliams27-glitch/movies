@@ -109,6 +109,7 @@ export const generationJobs = pgTable('generation_jobs', {
   userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   sceneId: uuid('sceneId').references(() => scenes.id, { onDelete: 'set null' }),
+  generationRunId: uuid('generationRunId'),
   type: text('type').notNull(),
   status: text('status').notNull().default('QUEUED'),
   progress: integer('progress').notNull().default(0),
@@ -136,10 +137,22 @@ export const generationOutbox = pgTable('generation_outbox', {
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({ pendingIdx: index('generation_outbox_pending_idx').on(table.status, table.availableAt), jobUnique: uniqueIndex('generation_outbox_job_event_unique').on(table.jobId, table.eventType) }))
 
+export const generationRuns = pgTable('generation_runs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('userId').notNull(),
+  projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  status: text('status').notNull().default('ACTIVE'),
+  prompt: text('prompt').notNull().default(''),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ projectVersionUnique: uniqueIndex('generation_runs_project_version_unique').on(table.projectId, table.version), projectCreatedIdx: index('generation_runs_project_created_idx').on(table.projectId, table.createdAt) }))
+
 export const filmBibles = pgTable('film_bibles', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: text('userId').notNull(),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }).unique(),
+  generationRunId: uuid('generationRunId'),
+  version: integer('version').notNull().default(1),
   logline: text('logline').notNull().default(''),
   premise: text('premise').notNull().default(''),
   midpoint: text('midpoint').notNull().default(''),
@@ -156,6 +169,8 @@ export const filmCharacters = pgTable('film_characters', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: text('userId').notNull(),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  generationRunId: uuid('generationRunId'),
+  version: integer('version').notNull().default(1),
   stableKey: text('stableKey').notNull(),
   name: text('name').notNull(),
   role: text('role').notNull().default(''),
@@ -171,6 +186,8 @@ export const storyboardShots = pgTable('storyboard_shots', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: text('userId').notNull(),
   projectId: uuid('projectId').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  generationRunId: uuid('generationRunId'),
+  version: integer('version').notNull().default(1),
   shotNumber: integer('shotNumber').notNull(),
   sceneLabel: text('sceneLabel').notNull().default(''),
   title: text('title').notNull().default(''),
