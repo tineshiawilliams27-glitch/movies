@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import { dequeueJob, getQueueKey } from './queue'
 import { claimJob, getJob, recoverExpiredJobs } from './jobs'
 import { processGenerationJob } from '../workflows/generation'
+import { validateProviderConfiguration } from './providers'
 
 const port = Number(process.env.PORT || 8080)
 const pollMs = Math.max(250, Number(process.env.WORKER_POLL_INTERVAL_MS || 1000))
@@ -71,6 +72,14 @@ async function updateJobAfterFailure(jobId: string, message: string) {
   } catch (updateError) {
     console.error('[worker] failed to update job state', updateError)
   }
+}
+
+try {
+  validateProviderConfiguration()
+} catch (error) {
+  console.error('[worker] provider configuration invalid', error instanceof Error ? error.message : error)
+  process.exitCode = 1
+  throw error
 }
 
 const server = createServer(async (request, response) => {

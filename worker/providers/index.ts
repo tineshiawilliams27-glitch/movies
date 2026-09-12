@@ -14,6 +14,13 @@ import { and, asc, desc, eq } from 'drizzle-orm'
 export type ProviderContext = { jobId: string; payload: Record<string, unknown> }
 export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 'NOT_CONFIGURED' }
 export type GenerationProvider = (context: ProviderContext & { onProgress?: (progress: number, stage?: string) => Promise<void> }) => Promise<ProviderResult>
+export type ProviderContract = {
+  kind: 'video' | 'image' | 'voice'
+  provider: string
+  model: string
+  requiredCredentials: string[]
+  requiredPayloadFields: string[]
+}
 
 const configured = (value: string | undefined, fallback: string) => (value ?? fallback).trim().toLowerCase()
 const videoProvider = configured(process.env.VIDEO_PROVIDER, 'replicate')
@@ -399,18 +406,29 @@ const videoExportProvider: GenerationProvider = async ({ jobId, payload, onProgr
   } finally { await rm(workdir, { recursive: true, force: true }) }
 }
 
+function withProviderContract(type: string, provider: string, implementation: GenerationProvider): GenerationProvider {
+  const contract = providerContracts().find((item) => item.kind === (type === 'VIDEO_GENERATION' ? 'video' : type === 'IMAGE_GENERATION' || type === 'CHARACTER_GENERATION' ? 'image' : 'voice') && item.provider === provider)
+  return async (context) => {
+    for (const field of contract?.requiredPayloadFields || []) {
+      const alternatives = type === 'VOICE_GENERATION' && field === 'text' ? ['text', 'dialogue', 'prompt'] : [field]
+      if (!alternatives.some((key) => typeof context.payload[key] === 'string' && String(context.payload[key]).trim())) throw new Error(`${type} requires payload field: ${field}.`)
+    }
+    return implementation(context)
+  }
+}
+
 export function providerFor(type: string): GenerationProvider {
   if (type === 'SCENE_GENERATION') return sceneBreakdownProvider
   if (type === 'SCRIPT_GENERATION') return gatewayTextProvider
   const configured = providerConfig[type as keyof typeof providerConfig]
-  if (type === 'VIDEO_GENERATION' && configured === 'replicate') return replicateVideoProvider
-  if (type === 'VIDEO_GENERATION' && configured === 'protoface') return protofaceVideoProvider
-  if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return imageGenerationProvider
-  if (type === 'IMAGE_GENERATION' && configured === 'protoface') return protofaceImageProvider
-  if (type === 'IMAGE_GENERATION' && configured === 'replicate') return replicateImageProvider
-  if (type === 'CHARACTER_GENERATION' && configured === 'replicate') return characterImageProvider
-  if (type === 'VOICE_GENERATION' && configured === 'http' && audioEndpoint) return audioGenerationProvider
-  if (type === 'VOICE_GENERATION' && configured === 'elevenlabs') return elevenLabsAudioProvider
+  if (type === 'VIDEO_GENERATION' && configured === 'replicate') return withProviderContract(type, configured, replicateVideoProvider)
+  if (type === 'VIDEO_GENERATION' && configured === 'protoface') return withProviderContract(type, configured, protofaceVideoProvider)
+  if (type === 'IMAGE_GENERATION' && configured === 'http' && imageEndpoint) return withProviderContract(type, configured, imageGenerationProvider)
+  if (type === 'IMAGE_GENERATION' && configured === 'protoface') return withProviderContract(type, configured, protofaceImageProvider)
+  if (type === 'IMAGE_GENERATION' && configured === 'replicate') return withProviderContract(type, configured, replicateImageProvider)
+  if (type === 'CHARACTER_GENERATION' && configured === 'replicate') return withProviderContract(type, configured, characterImageProvider)
+  if (type === 'VOICE_GENERATION' && configured === 'http' && audioEndpoint) return withProviderContract(type, configured, audioGenerationProvider)
+  if (type === 'VOICE_GENERATION' && configured === 'elevenlabs') return withProviderContract(type, configured, elevenLabsAudioProvider)
   if (type === 'TIMELINE_BUILD' && configured === 'local') return timelineProvider
   if (type === 'VIDEO_EXPORT' && configured === 'local') return videoExportProvider
   return unavailableProvider(`${type} (${configured || 'unknown'})`)
@@ -418,4 +436,25 @@ export function providerFor(type: string): GenerationProvider {
 
 export function configuredProviders() {
   return { ...providerConfig }
+}
+
+export function providerContracts(): ProviderContract[] {
+  return [
+    { kind: 'video', provider: videoProvider, model: videoProvider === 'replicate' ? replicateModel || '' : protofaceModel, requiredCredentials: videoProvider === 'replicate' ? ['REPLICATE_API_TOKEN'] : ['PROTOFACE_API_KEY'], requiredPayloadFields: ['prompt'] },
+    { kind: 'image', provider: imageProvider, model: imageProvider === 'replicate' ? replicateImageModel : imageProvider === 'protoface' ? protofaceImageModel : imageEndpoint || '', requiredCredentials: imageProvider === 'replicate' ? ['REPLICATE_API_TOKEN'] : imageProvider === 'protoface' ? ['PROTOFACE_API_KEY'] : ['IMAGE_PROVIDER_URL'], requiredPayloadFields: ['prompt'] },
+    { kind: 'voice', provider: voiceProvider, model: voiceProvider === 'elevenlabs' ? elevenLabsModelId : audioEndpoint || '', requiredCredentials: voiceProvider === 'elevenlabs' ? ['ELEVENLABS_API_KEY'] : ['AUDIO_PROVIDER_URL'], requiredPayloadFields: ['text'] },
+  ]
+}
+
+export function validateProviderConfiguration() {
+  const errors: string[] = []
+  for (const contract of providerContracts()) {
+    if (!contract.model) errors.push(`${contract.kind}: ${contract.provider} is missing its model or endpoint.`)
+    if (contract.provider === 'replicate' && !process.env.REPLICATE_API_TOKEN) errors.push(`${contract.kind}: set REPLICATE_API_TOKEN for Replicate.`)
+    if (contract.provider === 'protoface' && !protofaceApiKey) errors.push(`${contract.kind}: set PROTOFACE_API_KEY for Protoface.`)
+    if (contract.provider === 'elevenlabs' && !elevenLabsApiKey) errors.push(`${contract.kind}: set ELEVENLABS_API_KEY for ElevenLabs.`)
+    if (contract.provider === 'http' && !contract.model) errors.push(`${contract.kind}: set the HTTP provider endpoint.`)
+  }
+  for (const contract of providerContracts()) if (!contract.requiredPayloadFields.length) errors.push(`${contract.kind}: no required payload contract is defined.`)
+  if (errors.length) throw new Error(`Provider configuration is invalid:\n- ${errors.join('\n- ')}`)
 }
