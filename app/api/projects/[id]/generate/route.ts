@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { generateText, Output } from 'ai'
 import { z } from 'zod'
@@ -88,6 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const output = result.output as z.infer<typeof pipelineSchema>
     if (!output || !Array.isArray(output.characters) || !Array.isArray(output.shots)) return NextResponse.json({ error: 'Generation returned an incomplete pipeline.' }, { status: 502 })
     const { jobs } = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${id}))`)
       const [latestRun] = await tx.select({ version: generationRuns.version }).from(generationRuns).where(and(eq(generationRuns.projectId, id), eq(generationRuns.userId, session.user.id))).orderBy(desc(generationRuns.version)).limit(1)
       const [createdRun] = await tx.insert(generationRuns).values({ userId: session.user.id, projectId: id, version: (latestRun?.version ?? 0) + 1, prompt: parsed.data.prompt }).returning()
       if (!createdRun) throw new Error('Generation run could not be created.')
