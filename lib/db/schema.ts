@@ -97,6 +97,7 @@ export const mediaAssets = pgTable('media_assets', {
   kind: text('kind').notNull(),
   pathname: text('pathname').notNull(),
   contentType: text('contentType').notNull(),
+  sizeBytes: integer('sizeBytes').notNull().default(0),
   durationSeconds: numeric('durationSeconds'),
   metadata: jsonb('metadata').notNull().default({}),
   sourceId: uuid('sourceId'),

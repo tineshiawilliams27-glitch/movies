@@ -99,6 +99,13 @@
       "when": 1789185345308,
       "tag": "0014_worker_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789186824353,
+      "tag": "0015_media_asset_quotas",
+      "breakpoints": true
     }
   ]
 }
