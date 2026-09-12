@@ -15,7 +15,7 @@ const progressSchema = z.object({
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const workerSecret = process.env.WORKER_API_SECRET
   if (!workerSecret) return NextResponse.json({ error: 'Worker authentication is not configured.' }, { status: 503 })
-  if (request.headers.get('x-worker-secret') !== workerSecret) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (request.headers.get('authorization') !== `Bearer ${workerSecret}`) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const parsed = progressSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid progress payload.' }, { status: 400 })
   const { id } = await params

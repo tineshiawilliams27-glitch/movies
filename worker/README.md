@@ -31,12 +31,14 @@ Recommended runtime settings:
 - `WORKER_POLL_INTERVAL_MS=1000`
 - `NODE_ENV=production`
 
-The worker authenticates internal API requests with the `x-worker-secret` header and `WORKER_API_SECRET`. Provider adapters use their named credentials only; legacy aliases are not supported.
+The worker authenticates internal API requests with `Authorization: Bearer <WORKER_API_SECRET>`. Provider adapters use their named credentials only; legacy aliases are not supported.
+
+The worker uses controlled per-type concurrency. Defaults are text 4, image 3, voice 3, video 2, and export 1. Override these with `WORKER_TEXT_CONCURRENCY`, `WORKER_IMAGE_CONCURRENCY`, `WORKER_VOICE_CONCURRENCY`, `WORKER_VIDEO_CONCURRENCY`, and `WORKER_EXPORT_CONCURRENCY`.
 
 ## Health checks
 
 - `GET /health` returns `200` when the worker is configured and `503` when `WORKER_API_SECRET` is missing.
-- `GET /ready` requires the `x-worker-secret` header and is suitable for an authenticated readiness check.
+- `GET /ready` requires `Authorization: Bearer <WORKER_API_SECRET>` and is suitable for an authenticated readiness check.
 
 Configure the container platform's liveness probe as `GET /health` on port `8080`. If the platform cannot send custom headers, use `/health` for both liveness and readiness.
 

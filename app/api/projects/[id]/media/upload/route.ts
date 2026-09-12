@@ -8,6 +8,11 @@ import { db } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { checkRateLimit, rateLimitPolicies, rateLimitResponse } from '@/lib/rate-limit'
 
+const MAX_ASSET_BYTES = 250 * 1024 * 1024
+function safePathSegment(value: string) {
+  return value.normalize('NFKC').replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').slice(0, 180) || 'upload'
+}
+
 const allowedContentTypes = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/wav', 'audio/ogg', 'text/vtt', 'text/plain', 'application/x-subrip']
 
 export async function POST(request: Request, context: { params: Promise<Record<string, string | string[]>> }) {
@@ -26,9 +31,9 @@ export async function POST(request: Request, context: { params: Promise<Record<s
     request,
     onBeforeGenerateToken: async (pathname) => ({
       allowedContentTypes,
-      maximumSizeInBytes: 250 * 1024 * 1024,
+      maximumSizeInBytes: MAX_ASSET_BYTES,
       addRandomSuffix: false,
-      tokenPayload: JSON.stringify({ userId: session.user.id, projectId: id, pathname }),
+      tokenPayload: JSON.stringify({ userId: session.user.id, projectId: id, pathname: safePathSegment(pathname) }),
     }),
     onUploadCompleted: async () => undefined,
   })
@@ -39,8 +44,8 @@ export function validateUploadMetadata(input: unknown) {
   return z.object({
     pathname: z.string().min(1),
     contentType: z.enum(allowedContentTypes as [string, ...string[]]),
-    size: z.number().int().positive().max(250 * 1024 * 1024),
-    name: z.string().min(1).max(200),
+    size: z.number().int().positive().max(MAX_ASSET_BYTES),
+    name: z.string().trim().min(1).max(200),
     kind: z.enum(['IMAGE', 'VIDEO', 'AUDIO', 'SUBTITLE']),
   }).safeParse(input)
 }
