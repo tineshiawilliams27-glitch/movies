@@ -1,5 +1,5 @@
 export function getElevenLabsApiKey() {
-  return (process.env.ELEVENLABS_API_KEY || process.env.API_KEY || '').trim()
+  return (process.env.ELEVENLABS_API_KEY || '').trim()
 }
 
 export function elevenLabsHeaders(apiKey: string) {

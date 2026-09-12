@@ -1,5 +1,5 @@
 export function getOpenAIApiKey() {
-  return (process.env.OPENAI_API_KEY || process.env.API_KEY || '').trim()
+  return (process.env.OPENAI_API_KEY || '').trim()
 }
 
 export function openAIHeaders(apiKey: string) {

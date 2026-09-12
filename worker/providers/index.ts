@@ -16,12 +16,12 @@ export type ProviderResult = { result: Record<string, unknown>; status?: 'OK' | 
 export type GenerationProvider = (context: ProviderContext & { onProgress?: (progress: number, stage?: string) => Promise<void> }) => Promise<ProviderResult>
 
 const configured = (value: string | undefined, fallback: string) => (value ?? fallback).trim().toLowerCase()
-const videoProvider = configured(process.env.VIDEO_PROVIDER ?? process.env.VIDEO_PROVIDER_3, 'replicate')
+const videoProvider = configured(process.env.VIDEO_PROVIDER, 'replicate')
 const imageProvider = configured(process.env.IMAGE_PROVIDER, 'replicate')
-const voiceProvider = configured(process.env.VOICE_PROVIDER ?? process.env.AUDIO_PROVIDER, 'elevenlabs')
+const voiceProvider = configured(process.env.VOICE_PROVIDER, 'elevenlabs')
 const replicateModel = process.env.REPLICATE_VIDEO_MODEL?.trim()
 const protofaceEndpoint = (process.env.PROTOFACE_API_URL || 'https://api.protoface.com/v1/runs').trim()
-const protofaceApiKey = (process.env.PROTOFACE_API_KEY || process.env.API_KEY || '').trim()
+const protofaceApiKey = (process.env.PROTOFACE_API_KEY || '').trim()
 const protofaceModel = (process.env.PROTOFACE_VIDEO_MODEL || 'minimax/minimax-h3').trim()
 const protofaceImageModel = (process.env.PROTOFACE_IMAGE_MODEL || 'openai/gpt-image-2').trim()
 const replicateImageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-dev').trim()

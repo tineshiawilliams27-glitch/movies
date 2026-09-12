@@ -18,4 +18,6 @@ Required environment variables:
 - `WORKER_API_SECRET`
 - provider credentials used by the selected adapters
 
+The worker authenticates internal API requests with the `x-worker-secret` header and `WORKER_API_SECRET`. Provider adapters use their named credentials only; legacy aliases are not supported.
+
 Health is available at `GET /health` on `PORT` (default `8080`). Set `WORKER_QUEUE_KEY` to override the default `generation:pending` list.
