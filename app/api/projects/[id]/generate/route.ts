@@ -11,9 +11,20 @@ import { checkRateLimit, rateLimitPolicies, rateLimitResponse } from '@/lib/rate
 
 export const maxDuration = 300
 
+const MAX_BODY_BYTES = 512_000
+const MAX_PROMPT_CHARS = 20_000
+const MAX_PROJECT_TITLE_CHARS = 240
+const MAX_PROJECT_CONCEPT_CHARS = 10_000
+const MAX_PIPELINE_SHOTS = 100
+const MAX_PIPELINE_CHARACTERS = 50
+const MAX_PIPELINE_SCREENPLAY_CHARS = 50_000
+const MAX_PIPELINE_ESTIMATED_TOKENS = 50_000
+const MAX_PROJECT_ACTIVE_JOBS = 250
+const MAX_PROJECT_TOTAL_SHOTS = 1_000
+
 const requestSchema = z.object({
   kind: z.enum(['story', 'scene', 'character', 'visual', 'audio', 'pipeline']),
-  prompt: z.string().trim().min(1),
+  prompt: z.string().trim().min(1).max(MAX_PROMPT_CHARS),
 })
 
 const pipelineSchema = z.object({
@@ -23,10 +34,10 @@ const pipelineSchema = z.object({
   midpoint: z.string().max(4000),
   climax: z.string(),
   acts: z.array(z.object({ title: z.string().max(200), summary: z.string().max(4000), beats: z.array(z.string().max(1000)).max(20) })).max(12),
-  screenplay: z.string().max(100000),
+  screenplay: z.string().max(MAX_PIPELINE_SCREENPLAY_CHARS),
   styleBible: z.object({ palette: z.string(), lens: z.string(), lighting: z.string(), texture: z.string(), rules: z.array(z.string()) }),
-  characters: z.array(z.object({ stableKey: z.string().trim().min(1).max(120), name: z.string().max(120), role: z.string().max(200), description: z.string().max(4000), appearance: z.string().max(4000), voiceIdentity: z.object({ timbre: z.string().max(500), pace: z.string().max(500), emotionalDirection: z.string().max(1000) }) })).max(100),
-  shots: z.array(z.object({ shotNumber: z.number().int().positive().max(10000), sceneLabel: z.string().max(200), title: z.string().max(200), description: z.string().max(4000), shotType: z.string().max(120), cameraMovement: z.string().max(500), lighting: z.string().max(500), mood: z.string().max(500), dialogue: z.string().max(4000), effects: z.string().max(2000), durationSeconds: z.number().positive().max(3600), continuityNotes: z.string().max(2000), framePrompt: z.string().max(4000) })).max(1000),
+  characters: z.array(z.object({ stableKey: z.string().trim().min(1).max(120), name: z.string().max(120), role: z.string().max(200), description: z.string().max(4000), appearance: z.string().max(4000), voiceIdentity: z.object({ timbre: z.string().max(500), pace: z.string().max(500), emotionalDirection: z.string().max(1000) }) })).max(MAX_PIPELINE_CHARACTERS),
+  shots: z.array(z.object({ shotNumber: z.number().int().positive().max(MAX_PROJECT_TOTAL_SHOTS), sceneLabel: z.string().max(200), title: z.string().max(200), description: z.string().max(4000), shotType: z.string().max(120), cameraMovement: z.string().max(500), lighting: z.string().max(500), mood: z.string().max(500), dialogue: z.string().max(4000), effects: z.string().max(2000), durationSeconds: z.number().positive().max(3600), continuityNotes: z.string().max(2000), framePrompt: z.string().max(4000) })).max(MAX_PIPELINE_SHOTS),
 })
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -36,10 +47,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!rate.success) return rateLimitResponse(rate.reset)
   const { id } = await params
   if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
-  const parsed = requestSchema.safeParse(await request.json().catch(() => null))
+  const contentLength = Number(request.headers.get('content-length') || 0)
+  if (contentLength > MAX_BODY_BYTES) return NextResponse.json({ error: 'Generation request is too large.' }, { status: 413 })
+  const rawBody = await request.arrayBuffer()
+  if (rawBody.byteLength > MAX_BODY_BYTES) return NextResponse.json({ error: 'Generation request is too large.' }, { status: 413 })
+  let body: unknown
+  try {
+    body = JSON.parse(new TextDecoder().decode(rawBody))
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON request.' }, { status: 400 })
+  }
+  const parsed = requestSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid generation request.' }, { status: 400 })
   const [project] = await db.select({ id: projects.id, title: projects.title, concept: projects.concept }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
   if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
+  if (project.title.length > MAX_PROJECT_TITLE_CHARS || project.concept.length > MAX_PROJECT_CONCEPT_CHARS) return NextResponse.json({ error: 'Project context exceeds the generation limits.' }, { status: 413 })
+  const [activeJobs] = await db.select({ count: generationJobs.id }).from(generationJobs).where(and(eq(generationJobs.projectId, id), eq(generationJobs.userId, session.user.id), eq(generationJobs.status, 'QUEUED')))
+  if (activeJobs?.count && Number(activeJobs.count) >= MAX_PROJECT_ACTIVE_JOBS) return NextResponse.json({ error: 'This project has too many queued generation jobs.' }, { status: 429 })
+  if (parsed.data.kind === 'pipeline') {
+    const estimatedTokens = Math.ceil((parsed.data.prompt.length + project.title.length + project.concept.length + (parsed.data.kind === 'pipeline' ? MAX_PIPELINE_SCREENPLAY_CHARS : 0)) / 4)
+    if (estimatedTokens > MAX_PIPELINE_ESTIMATED_TOKENS) return NextResponse.json({ error: 'The estimated generation size exceeds the project limit.' }, { status: 413 })
+    const [existingShots] = await db.select({ count: storyboardShots.id }).from(storyboardShots).where(and(eq(storyboardShots.projectId, id), eq(storyboardShots.userId, session.user.id)))
+    if (Number(existingShots?.count || 0) + MAX_PIPELINE_SHOTS > MAX_PROJECT_TOTAL_SHOTS) return NextResponse.json({ error: 'This generation would exceed the project shot limit.' }, { status: 413 })
+  }
 
   let result
   try {
