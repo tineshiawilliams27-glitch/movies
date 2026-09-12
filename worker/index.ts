@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { dequeueJob, getQueueKey } from './queue'
-import { claimJob, getJob } from './jobs'
+import { claimJob, getJob, recoverExpiredJobs } from './jobs'
 import { processGenerationJob } from '../workflows/generation'
 
 const port = Number(process.env.PORT || 8080)
@@ -27,6 +27,7 @@ function canStart(pool: keyof typeof concurrency) {
 }
 
 async function processNextJob() {
+  await recoverExpiredJobs()
   for (const pool of Object.keys(concurrency) as Array<keyof typeof concurrency>) {
     if (!canStart(pool)) continue
     const jobId = await dequeueJob()
