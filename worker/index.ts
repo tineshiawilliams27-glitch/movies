@@ -67,7 +67,7 @@ async function processJob(jobId: string, reservedPool: keyof typeof concurrency)
 
 async function updateJobAfterFailure(jobId: string, message: string) {
   try {
-    await fetch(`${(process.env.WORKER_API_URL || 'http://localhost:3000').replace(/\/$/, '')}/api/internal/jobs/${jobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-worker-secret': process.env.WORKER_API_SECRET || '' }, body: JSON.stringify({ status: 'DEAD_LETTER', error: message, stage: 'Worker failed' }) })
+    await fetch(`${(process.env.WORKER_API_URL || 'http://localhost:3000').replace(/\/$/, '')}/api/internal/jobs/${jobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.WORKER_API_SECRET || ''}` }, body: JSON.stringify({ status: 'DEAD_LETTER', error: message, stage: 'Worker failed' }) })
   } catch (updateError) {
     console.error('[worker] failed to update job state', updateError)
   }
@@ -86,8 +86,8 @@ const server = createServer(async (request, response) => {
     return
   }
   if (request.method === 'GET' && request.url === '/ready') {
-    const provided = request.headers['x-worker-secret']
-    if (!process.env.WORKER_API_SECRET || provided !== process.env.WORKER_API_SECRET) {
+    const provided = request.headers.authorization
+    if (!process.env.WORKER_API_SECRET || provided !== `Bearer ${process.env.WORKER_API_SECRET}`) {
       response.writeHead(401)
       response.end()
       return

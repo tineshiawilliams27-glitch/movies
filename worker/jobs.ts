@@ -16,7 +16,7 @@ export const leaseMs = Math.max(30_000, Number(process.env.WORKER_LEASE_MS || 30
 
 async function request(path: string, init?: RequestInit) {
   if (!workerSecret) throw new Error('WORKER_API_SECRET is required by the worker.')
-  const response = await fetch(`${apiUrl}${path}`, { ...init, headers: { 'Content-Type': 'application/json', 'x-worker-secret': workerSecret, 'x-worker-id': workerId, ...(init?.headers || {}) } })
+  const response = await fetch(`${apiUrl}${path}`, { ...init, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${workerSecret}`, 'x-worker-id': workerId, ...(init?.headers || {}) } })
   if (!response.ok) throw new Error(`Worker API request failed (${response.status}).`)
   return response.json() as Promise<Record<string, unknown>>
 }

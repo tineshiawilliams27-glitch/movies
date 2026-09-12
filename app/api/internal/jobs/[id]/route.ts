@@ -5,7 +5,8 @@ import { db } from '@/lib/db'
 import { generationJobs } from '@/lib/db/schema'
 
 function authorized(request: Request) {
-  return Boolean(process.env.WORKER_API_SECRET && request.headers.get('x-worker-secret') === process.env.WORKER_API_SECRET)
+  const secret = process.env.WORKER_API_SECRET
+  return Boolean(secret && request.headers.get('authorization') === `Bearer ${secret}`)
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
