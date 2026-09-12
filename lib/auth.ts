@@ -4,7 +4,7 @@ import { pool } from '@/lib/db'
 const productionOrigin = 'https://ai-video-studio-phi-wine.vercel.app'
 const baseURL = process.env.BETTER_AUTH_URL ??
   (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` :
-    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.V0_RUNTIME_URL ?? productionOrigin)
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : productionOrigin)
 
 export const auth = betterAuth({
   database: pool,
@@ -25,10 +25,6 @@ export const auth = betterAuth({
     ...(process.env.BETTER_AUTH_URL ? [process.env.BETTER_AUTH_URL] : []),
     ...(process.env.NODE_ENV === 'development' ? [
       'http://localhost:3000',
-      ...(process.env.V0_RUNTIME_URL ? [process.env.V0_RUNTIME_URL] : []),
-      ...(process.env.V0_DEV_APP_URL ? [process.env.V0_DEV_APP_URL] : []),
-      ...(process.env.V0_BUILD_URL ? [process.env.V0_BUILD_URL] : []),
-      ...(process.env.V0_SANDBOX_URL ? [process.env.V0_SANDBOX_URL] : []),
     ] : []),
     ...(process.env.NODE_ENV === 'production' ? [
       productionOrigin,

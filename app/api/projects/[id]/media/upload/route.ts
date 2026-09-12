@@ -6,12 +6,15 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
+import { checkRateLimit, rateLimitPolicies, rateLimitResponse } from '@/lib/rate-limit'
 
 const allowedContentTypes = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/wav', 'audio/ogg', 'text/vtt', 'text/plain', 'application/x-subrip']
 
 export async function POST(request: Request, context: { params: Promise<Record<string, string | string[]>> }) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
+  const rate = await checkRateLimit(`user:${session.user.id}`, rateLimitPolicies.upload)
+  if (!rate.success) return rateLimitResponse(rate.reset)
   const params = await context.params
   const id = typeof params.id === 'string' ? params.id : ''
   const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
