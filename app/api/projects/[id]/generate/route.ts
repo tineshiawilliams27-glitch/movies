@@ -7,6 +7,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { filmBibles, filmCharacters, generationJobs, generationOutbox, generationRuns, projects, storyboardShots, timelineItems } from '@/lib/db/schema'
 import { enqueueJob } from '@/worker/queue'
+import { checkRateLimit, rateLimitPolicies, rateLimitResponse } from '@/lib/rate-limit'
 
 export const maxDuration = 300
 
@@ -31,6 +32,8 @@ const pipelineSchema = z.object({
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
+  const rate = await checkRateLimit(`user:${session.user.id}`, rateLimitPolicies.ai)
+  if (!rate.success) return rateLimitResponse(rate.reset)
   const { id } = await params
   if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const parsed = requestSchema.safeParse(await request.json().catch(() => null))

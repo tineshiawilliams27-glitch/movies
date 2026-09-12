@@ -6,10 +6,13 @@ import { processGenerationJob } from '@/workflows/generation'
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { characters, generationJobs, generationOutbox, projects } from '@/lib/db/schema'
+import { checkRateLimit, rateLimitPolicies, rateLimitResponse } from '@/lib/rate-limit'
 
 export async function POST(request: Request, context: { params: Promise<{ id: string; characterId: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
+  const rate = await checkRateLimit(`user:${session.user.id}`, rateLimitPolicies.image)
+  if (!rate.success) return rateLimitResponse(rate.reset)
 
   const { id, characterId } = await context.params
   const [record] = await db.select({ character: characters, project: projects }).from(characters).innerJoin(projects, eq(projects.id, characters.projectId)).where(and(eq(characters.id, characterId), eq(characters.projectId, id), eq(characters.userId, session.user.id), eq(projects.userId, session.user.id))).limit(1)

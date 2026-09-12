@@ -8,6 +8,7 @@ import { db } from '@/lib/db'
 import { generationJobs, generationOutbox, projects, scenes } from '@/lib/db/schema'
 import { start } from 'workflow/api'
 import { processGenerationJob } from '@/workflows/generation'
+import { checkRateLimit, rateLimitPolicies, rateLimitResponse } from '@/lib/rate-limit'
 
 const createJobSchema = z.object({
   type: generationJobTypeSchema,
@@ -19,10 +20,10 @@ const createJobSchema = z.object({
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
+  const rate = await checkRateLimit(`user:${session.user.id}`, rateLimitPolicies.normal)
+  if (!rate.success) return rateLimitResponse(rate.reset)
   const { id } = await params
   if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
-  const [project] = await db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, id), eq(projects.userId, session.user.id))).limit(1)
-  if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const sceneIdValue = new URL(request.url).searchParams.get('sceneId')
   if (sceneIdValue && !z.string().uuid().safeParse(sceneIdValue).success) return NextResponse.json({ error: 'Invalid scene ID.' }, { status: 400 })
   const sceneId = sceneIdValue || undefined
@@ -33,6 +34,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 })
+  const rate = await checkRateLimit(`user:${session.user.id}`, rateLimitPolicies.ai)
+  if (!rate.success) return rateLimitResponse(rate.reset)
   const { id } = await params
   if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
   const parsed = createJobSchema.safeParse(await request.json().catch(() => null))
